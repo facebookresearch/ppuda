@@ -47,7 +47,12 @@ For graph visualizations we use `pygraphviz`. To make it work, `graphviz` may ne
 ## To install the ppuda package
 
 ```
-pip install git+https://github.com/facebookresearch/ppuda # use pip install -e . to install an editable version
+pip install git+https://github.com/facebookresearch/ppuda
+```
+
+To install the package in editable mode
+```
+pip install -e .
 ```
 
 ## To obtain all packages required for every file
