@@ -50,7 +50,7 @@ For graph visualizations we use `pygraphviz`. To make it work, `graphviz` may ne
 pip install git+https://github.com/facebookresearch/ppuda
 ```
 
-To install the package in editable mode
+NOTE: It's also possible to install the package in editable mode via
 ```
 pip install -e .
 ```
