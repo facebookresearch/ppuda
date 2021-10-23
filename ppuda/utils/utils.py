@@ -75,9 +75,9 @@ def pretrained_model(model, ckpt, num_classes, debug, ghn_class):
             ghn(model, predict_class_layers=ghn.num_classes == num_classes, bn_train=False)
         else:
             # Load a trained model
-            if model.genotype == DARTS:
-                model = load_DARTS_pretrained(model, checkpoint=ckpt, device=device,
-                                              load_class_layers=num_classes == 1000)
+            if hasattr(model, 'genotype') and model.genotype == DARTS:
+                model, res = load_DARTS_pretrained(model, checkpoint=ckpt, device=device,
+                                                   load_class_layers=num_classes == 1000)
             else:
                 state_dict = torch.load(ckpt, map_location=device)['state_dict']
                 params = dict(model.named_parameters())
@@ -85,8 +85,8 @@ def pretrained_model(model, ckpt, num_classes, debug, ghn_class):
                 for name in names:
                     if name.startswith('classifier') and state_dict[name].shape != params[name].shape:
                         del state_dict[name]
-                model.load_state_dict(state_dict)
-            print('loaded pretrained model from {}'.format(ckpt))
+                res = model.load_state_dict(state_dict, strict=False)
+            print('loaded pretrained model from {} (result = {})'.format(ckpt, res))
 
     elif isinstance(model, torchvision.models.ResNet):
         if num_classes != 1000:

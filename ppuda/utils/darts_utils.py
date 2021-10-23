@@ -90,7 +90,10 @@ def load_DARTS_pretrained(net, checkpoint='./checkpoints/imagenet_model.pt', dev
     for name, p in state_dict.items():
         if name.startswith('classifier.'):
             if load_class_layers:
-                state_dict_new[name.replace('classifier.', 'classifier.0.')] = p
+                if name.startswith('classifier.w') or name.startswith('classifier.b'):
+                    state_dict_new[name.replace('classifier.', 'classifier.0.')] = p
+                else:
+                    state_dict_new[name] = p
         elif name.startswith('auxiliary'):
             continue
         else:

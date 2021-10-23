@@ -2,11 +2,16 @@
 
 authors: [Boris Knyazev](http://bknyaz.github.io/), [Michal Drozdzal](https://scholar.google.es/citations?user=XK_ktwQAAAAJ&hl=en), [Graham Taylor](https://www.gwtaylor.ca/), [Adriana Romero-Soriano](https://sites.google.com/site/adriromsor/)
 
+
 | Overview |  Results on ResNet-50 
 |:-------------------------:|:-------------------------:|
 | <figure> <img src="data/figs/overview.png" height="150"></figure> | <figure> <img src="data/figs/results.png" height="150"></figure> |
 
 This repository contains the code to train and evaluate [Graph HyperNetworks (GHNs)](https://arxiv.org/abs/1810.05749). This repository also contains the DeepNets-1M dataset of neural architectures proposed in our paper to train and evaluate GHNs. Our improved GHNs trained on our DeepNets-1M allow to predict parameters for diverse networks, even if they are very different from those used to train GHNs  (e.g. ResNet-50). Parameter prediction by GHNs is performed in a single forward pass and on average takes < 1 second either on GPU or CPU!
+
+We provide a [Google Colab notebook](https://colab.research.google.com/drive/1fU0JU6p73QThJiakFPLNoOmkbDEYw2xf?usp=sharing) to experiment with parameter prediction on the CIFAR-10 dataset. [Video](https://youtu.be/JldVSaQ0rjw) walking through the colab notebook and showing parameter prediction in real time.
+
+<video src="data/figs/colab.mp4" width=320></video>
 
 # Table of Contents  
 - [Requirements and installation](#requirements-and-installation)
@@ -56,6 +61,8 @@ pip install -e .
 ```
 
 ## To obtain all packages required for every file
+
+This step may be needed only if the package installation is failed/skipped.
 ```
 pip install -r requirements.txt
 ```
@@ -81,7 +88,7 @@ We release five GHNs. Below are top-1 accuracies on CIFAR-10 and top-5 accuracie
 <sup>‡</sup> Denotes the architecture index in the `test` split of DeepNets-1M.
 
 
-Each GHN checkpoint takes just a few megabytes and is stored in the [checkpoints](./checkpoints) folder of this repository.
+Each GHN checkpoint takes just a few megabytes and is stored in the [checkpoints](./checkpoints) folder of this repository. Other checkpoints (ablated GHN models, some networks trained with SGD) are available [here](https://drive.google.com/drive/folders/1Oj3M1kzvpEANw_KuB9iBaRPbEbuNKrqg?usp=sharing).
 
 # Minimal example: predict parameters for ResNet-50
 
