@@ -2,7 +2,6 @@
 
 authors: [Boris Knyazev](http://bknyaz.github.io/), [Michal Drozdzal](https://scholar.google.es/citations?user=XK_ktwQAAAAJ&hl=en), [Graham Taylor](https://www.gwtaylor.ca/), [Adriana Romero-Soriano](https://sites.google.com/site/adriromsor/)
 
-
 | Overview |  Results on ResNet-50 
 |:-------------------------:|:-------------------------:|
 | <figure> <img src="data/figs/overview.png" height="150"></figure> | <figure> <img src="data/figs/results.png" height="150"></figure> |
@@ -11,7 +10,7 @@ This repository contains the code to train and evaluate [Graph HyperNetworks (GH
 
 We provide a [Google Colab notebook](https://colab.research.google.com/drive/1fU0JU6p73QThJiakFPLNoOmkbDEYw2xf?usp=sharing) to experiment with parameter prediction on the CIFAR-10 dataset. [Video](https://youtu.be/JldVSaQ0rjw) walking through the colab notebook and showing parameter prediction in real time.
 
-<video src="data/figs/colab.mp4" width=320></video>
+<figure> <img src="data/figs/colab.gif" height="480"></figure>
 
 # Table of Contents  
 - [Requirements and installation](#requirements-and-installation)
