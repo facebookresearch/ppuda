@@ -10,7 +10,7 @@ This repository contains the code to train and evaluate [Graph HyperNetworks (GH
 
 We provide a [Google Colab notebook](https://colab.research.google.com/drive/1fU0JU6p73QThJiakFPLNoOmkbDEYw2xf?usp=sharing) to experiment with parameter prediction on the CIFAR-10 dataset. [Video](https://youtu.be/JldVSaQ0rjw) walking through the colab notebook and showing parameter prediction in real time.
 
-<figure> <img src="data/figs/colab.gif" height="480"></figure>
+<figure> <img src="data/figs/colab.gif" height="600"></figure>
 
 # Table of Contents  
 - [Requirements and installation](#requirements-and-installation)
