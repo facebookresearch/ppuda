@@ -1,6 +1,9 @@
 # Parameter Prediction for Unseen Deep Architectures (NeurIPS 2021)
 
+[paper pdf](https://bknyaz.github.io/papers/ppuda_neurips2021.pdf)
+
 authors: [Boris Knyazev](http://bknyaz.github.io/), [Michal Drozdzal](https://scholar.google.es/citations?user=XK_ktwQAAAAJ&hl=en), [Graham Taylor](https://www.gwtaylor.ca/), [Adriana Romero-Soriano](https://sites.google.com/site/adriromsor/)
+
 
 | Overview |  Results on ResNet-50 
 |:-------------------------:|:-------------------------:|
