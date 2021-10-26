@@ -12,6 +12,7 @@ Graph HyperNetworks.
 
 import torch
 import torch.nn as nn
+import os
 from .mlp import MLP
 from .gatedgnn import GatedGNN
 from .decoder import MLPDecoder, ConvDecoder
@@ -25,15 +26,30 @@ import time
 
 
 def GHN1(dataset='imagenet'):
-    return GHN.load('./checkpoints/ghn1_%s.pt' % dataset)
+    """
+        Loads GHN-1 trained on ImageNet or CIFAR-10.
+        To load a GHN from an arbitrary checkpoint, use GHN.load(checkpoint_path).
+        :param dataset: imagenet or cifar10
+        :return: GHN-1 with trained weights
+        """
+    path = os.path.dirname(os.path.abspath(__file__))
+    return GHN.load(os.path.join(path, '../../checkpoints/ghn1_%s.pt' % dataset))
+
 
 def GHN2(dataset='imagenet'):
-    return GHN.load('./checkpoints/ghn2_%s.pt' % dataset)
+    """
+    Loads GHN-2 trained on ImageNet or CIFAR-10.
+    To load a GHN from an arbitrary checkpoint, use GHN.load(checkpoint_path).
+    :param dataset: imagenet or cifar10
+    :return: GHN-2 with trained weights
+    """
+    path = os.path.dirname(os.path.abspath(__file__))
+    return GHN.load(os.path.join(path, '../../checkpoints/ghn2_%s.pt' % dataset))
 
 
 def ghn_parallel(ghn):
     """
-    For training on multiple GPUs.
+    For training a GHN on multiple GPUs.
     :param ghn: GHN instance
     :return: DataParallel wrapper of GHN
     """
