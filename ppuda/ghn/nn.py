@@ -177,7 +177,7 @@ class GHN(nn.Module):
                 'constructing the graph on the fly is only supported in the evaluation mode'
 
         # Find mapping between embeddings and network parameters
-        param_groups, params_map, max_sz = self._map_net_params(graphs, nets_torch, self.debug_level > 0)
+        param_groups, params_map = self._map_net_params(graphs, nets_torch, self.debug_level > 0)
 
         if self.debug_level or not self.training:
             n_params_true = sum([capacity(net)[1] for net in (nets_torch if isinstance(nets_torch, list) else [nets_torch])])
@@ -200,10 +200,13 @@ class GHN(nn.Module):
             if len(inds) == 0:
                 continue
             x_ = x[torch.tensor(inds, device=x.device)]
-            if key in ['4d', 'cls_w']:
-                w[key] = self.decoder(x_, max_sz, key=='cls_w')
+            if key == 'cls_w':
+                w[key] = self.decoder(x_, (1, 1), class_pred=True)
+            elif key.startswith('4d'):
+                sz = tuple(map(int, key.split('-')[1:]))
+                w[key] = self.decoder(x_, sz, class_pred=False)
             else:
-                w[key] = self.decoder_1d(x_).view(len(inds), 2, -1)
+                w[key] = self.decoder_1d(x_).view(len(inds), 2, -1)#.clone()
                 if key == 'cls_b':
                     w[key] = self.bias_class(w[key])
 
@@ -286,11 +289,10 @@ class GHN(nn.Module):
         :param graphs: GraphBatch object
         :param nets_torch: a single neural network of a list
         :param sanity_check:
-        :return: mapping, params_map, max_sz
+        :return: mapping, params_map
         """
-        mapping = {'1d': [], '4d': [], 'cls_w': [], 'cls_b': []}
+        mapping = {}
         params_map = {}
-        max_sz = (0, 0)  # maximum kernel spatial size in this batch of networks
 
         nets_torch = [nets_torch] if type(nets_torch) not in [tuple, list] else nets_torch
 
@@ -331,10 +333,12 @@ class GHN(nn.Module):
                         sz = matched[0]['sz']
                         if len(sz) == 1:
                             key = 'cls_b' if last_bias else '1d'
+                        elif last_weight:
+                            key = 'cls_w'
                         else:
-                            key = 'cls_w' if last_weight else '4d'
-                            if len(sz) > 2:
-                                max_sz = (max(max_sz[0], sz[2]), max(max_sz[1], sz[3]))
+                            key = '4d-%d-%d' % ((1, 1) if len(sz) == 2 else sz[2:])
+                        if key not in mapping:
+                            mapping[key] = []
                         params_map[param_ind + node_ind] = (matched[0], key, len(mapping[key]))
                         mapping[key].append(param_ind + node_ind)
 
@@ -350,7 +354,7 @@ class GHN(nn.Module):
                         if hasattr(m['module'], 'bias') and m['module'].bias is not None:
                             m['module'].bias = None
 
-        return mapping, params_map, max_sz
+        return mapping, params_map
 
 
     def _tile_params(self, w, target_shape):

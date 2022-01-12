@@ -43,7 +43,7 @@ class ConvDecoder(nn.Module):
             nn.Conv2d(out_shape[0], num_classes, 1))
 
 
-    def forward(self, x, max_shape=(0,0), class_pred=False):
+    def forward(self, x, max_shape=(1,1), class_pred=False):
 
         N = x.shape[0]
         x = self.fc(x).view(N, -1, *self.out_shape[2:])  # N,128,11,11
@@ -82,7 +82,7 @@ class MLPDecoder(nn.Module):
             nn.Linear(hid[0], num_classes * out_shape[0]))
 
 
-    def forward(self, x, max_shape=(0,0), class_pred=False):
+    def forward(self, x, max_shape=(1,1), class_pred=False):
         if class_pred:
             x = list(self.mlp.fc.children())[0](x)  # shared first layer
             x = self.class_layer_predictor(x)  # N, 1000, 64, 1

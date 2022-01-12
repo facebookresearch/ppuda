@@ -68,7 +68,8 @@ def main():
                       n_batches=len(train_queue),
                       grad_clip=args.grad_clip,
                       device=ghn.device_ids if args.multigpu else args.device,
-                      log_interval=args.log_interval)
+                      log_interval=args.log_interval,
+                      amp=args.amp)
 
 
     seen_nets = set()
@@ -99,9 +100,7 @@ def main():
                                       **nets_args)
                         nets_torch.append(net)
 
-                    # Predict parameters
-                    nets_torch = ghn(nets_torch, graphs if args.multigpu else graphs.to_device(args.device))
-                    loss = trainer.update(nets_torch, images, targets)
+                    loss = trainer.update(nets_torch, images, targets, ghn=ghn, graphs=graphs)
                     trainer.log()
 
                     for ind in graphs.net_inds:

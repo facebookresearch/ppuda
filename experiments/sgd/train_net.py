@@ -112,7 +112,8 @@ def main():
                       auxiliary=args.auxiliary,
                       auxiliary_weight=args.auxiliary_weight,
                       device=args.device,
-                      log_interval=args.log_interval)
+                      log_interval=args.log_interval,
+                      amp=args.amp)
 
     for epoch in range(max(1, args.epochs)):  # if args.epochs=0, then just evaluate the model
 
