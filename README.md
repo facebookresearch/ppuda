@@ -1,9 +1,13 @@
 # Parameter Prediction for Unseen Deep Architectures (NeurIPS 2021)
 
-[paper pdf](https://bknyaz.github.io/papers/ppuda_neurips2021.pdf)
+[`paper`](https://bknyaz.github.io/papers/ppuda_neurips2021.pdf) [`reviews`](https://openreview.net/forum?id=vqHak8NLk25) [`neurips`](https://neurips.cc/virtual/2021/poster/28263) [`twitter`](https://twitter.com/BorisAKnyazev/status/1452813952719761416)
 
 authors: [Boris Knyazev](http://bknyaz.github.io/), [Michal Drozdzal](https://scholar.google.es/citations?user=XK_ktwQAAAAJ&hl=en), [Graham Taylor](https://www.gwtaylor.ca/), [Adriana Romero-Soriano](https://sites.google.com/site/adriromsor/)
 
+
+**Updates**
+- [Jan 12, 2022] Training speed of GHNs is improved significantly in some cases (see [PR#2](https://github.com/facebookresearch/ppuda/pull/2) for details).
+- [Nov 24, 2021] Video of Yannic Kilcher reviewing our paper together with Boris Knyazev is available on [YouTube](https://youtu.be/3HUK2UWzlFA)
 
 | Overview |  Results on ResNet-50 
 |:-------------------------:|:-------------------------:|

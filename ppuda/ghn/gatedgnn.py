@@ -61,7 +61,7 @@ class GatedGNN(nn.Module):
 
         is_1hop = ve == 1
         if self.ve:
-            ve = 1 / ve.float().view(-1, 1)   # according to Eq. 4 in the paper
+            ve = ve.view(-1, 1)   # according to Eq. 4 in the paper
 
         traversal_orders = [1, 0]  # forward, backward
 
@@ -80,7 +80,6 @@ class GatedGNN(nn.Module):
         mask2d = node_inds == all_nodes.view(1, -1)
         edge_graph_ind = edge_graph_ind.view(-1, 1).expand(-1, C)
 
-        zero = torch.zeros(B, C, dtype=x.dtype, device=x.device)
         hx = x  # initial hidden node features
 
         # Main loop
@@ -92,16 +91,16 @@ class GatedGNN(nn.Module):
                     # Compute the message by aggregating features from neighbors
                     e_1hop = torch.nonzero(masks_1hop[order][node, :]).view(-1)
                     m = self.mlp(hx[start[e_1hop]])                                 # transform node features of all 1-hop neighbors
-                    m = zero.clone().scatter_add_(0, edge_graph_ind[e_1hop], m)     # sum the transformed features into a (B,C) tensor
+                    m = torch.zeros(B, C, dtype=m.dtype, device=m.device).scatter_add_(0, edge_graph_ind[e_1hop], m)     # sum the transformed features into a (B,C) tensor
                     if self.ve:
                         e = torch.nonzero(masks_all[order][node, :]).view(-1)       # virtual edges connected to node
-                        m_ve = self.mlp_ve(hx[start[e]]) * ve[e]                    # transform node features of all ve-hop neighbors
+                        m_ve = self.mlp_ve(hx[start[e]]) / ve[e].to(m)              # transform node features of all ve-hop neighbors
                         m = m.scatter_add_(0, edge_graph_ind[e], m_ve)              # sum m and m_ve according to Eq. 4 in the paper
 
                     # Udpate node hidden states in parallel for a batch of graphs
                     ind = torch.nonzero(mask2d[:, node]).view(-1)
                     if B > 1:
                         m = m[node_graph_ind[ind]]
-                    hx[ind] = self.gru(m, hx[ind])
+                    hx[ind] = self.gru(m, hx[ind]).to(hx)  # 'to(hx)' is to make automatic mixed precision work
 
         return hx

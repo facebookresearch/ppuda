@@ -118,7 +118,7 @@ def init_config(mode='eval'):
         parser.add_argument('--multigpu', action='store_true', help='train on all gpus available')
         parser.add_argument('--wd', type=float, default=wd, help='weight decay')
         parser.add_argument('--name', type=str, default='EXP', help='experiment name')
-
+        parser.add_argument('--amp', action='store_true', help='use Automatic Mixed Precision')
 
         if is_train_ghn:
             parser.add_argument('--lr_steps', type=str, default='200,250', help='epochs when to decrease lr')
