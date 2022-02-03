@@ -190,7 +190,7 @@ class Network(nn.Module):
         self.genotype = genotype
         self._auxiliary = auxiliary
         self.drop_path_prob = 0
-        self.expected_image_sz = 224 if is_imagenet_input else 32
+        self.expected_input_sz = 224 if is_imagenet_input else 32
 
         self._is_vit = sum([n[0] == 'msa' for n in genotype.normal + genotype.reduce]) > 0 if is_vit is None else is_vit
 
@@ -314,7 +314,7 @@ class Network(nn.Module):
             s0, s1 = s1, cell(s0, s1, self.drop_path_prob)
             if self._auxiliary and cell_ind == self._auxiliary_cell_ind and self.training:
                 logits_aux = self.auxiliary_head(F.adaptive_avg_pool2d(s1, 8)
-                                                 if self._is_vit and self.expected_image_sz == 32
+                                                 if self._is_vit and self.expected_input_sz == 32
                                                  else s1)
         if s1 is None:
             raise ValueError('the network has invalid configuration: the output is None')

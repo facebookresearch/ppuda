@@ -52,7 +52,7 @@ class CNN(nn.Module):
 
 
 model = CNN().eval()    # Create the net
-model.expected_image_sz = 224 if is_imagenet else 32  # to construct the graph
+model.expected_input_sz = 224 if is_imagenet else 32  # to construct the graph
 model = ghn(model)      # Predict all parameters for the model
 
 print('\nEvaluation of CNN with {} parameters'.format(capacity(model)[1]))

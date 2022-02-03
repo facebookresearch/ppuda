@@ -202,8 +202,8 @@ class Graph():
         self.nx_graph = None  # NetworkX DiGraph instance
 
         if model is not None:
-            sz = model.expected_image_sz if hasattr(model, 'expected_image_sz') else 224
-            self.expected_image_sz = sz if type(sz) in [tuple, list] else (sz, sz)
+            sz = model.expected_input_sz if hasattr(model, 'expected_input_sz') else 224   # assume ImageNet image width/heigh by default
+            self.expected_input_sz = sz if isinstance(sz, (tuple, list)) else (3, sz, sz)  # assume images by default
             self.n_cells = self.model._n_cells if hasattr(self.model, '_n_cells') else 1
             self._build_graph()   # automatically construct an initial computational graph
             self._filter_graph()  # remove redundant/unsupported nodes
@@ -237,13 +237,13 @@ class Graph():
         """
         if model is None:
             model = self.model
-            expected_image_sz = self.expected_image_sz
+            expected_input_sz = self.expected_input_sz
         else:
-            sz = model.expected_image_sz if hasattr(model, 'expected_image_sz') else 224
-            expected_image_sz = sz if type(sz) in [tuple, list] else (sz, sz)
+            sz = model.expected_input_sz if hasattr(model, 'expected_input_sz') else 224
+            expected_input_sz = sz if isinstance(sz, (tuple, list)) else (3, sz, sz)
 
         device = list(model.parameters())[0].device  # assume all parameters on the same device
-        loss = model((torch.rand(1, 3, *expected_image_sz, device=device) - 0.5) / 2)
+        loss = model((torch.rand(1, *expected_input_sz, device=device) - 0.5) / 2)
         if isinstance(loss, tuple):
             loss = loss[0]
         loss = loss.mean()
@@ -344,7 +344,7 @@ class Graph():
 
             return node_link, fn_name
 
-        var = self.model(torch.randn(1, 3, *self.expected_image_sz))
+        var = self.model(torch.randn(1, *self.expected_input_sz))
         # take only the first output, but can in principle handle multiple outputs, e.g. from auxiliary classifiers
         traverse_graph((var[0] if isinstance(var, (tuple, list)) else var).grad_fn)  # populate nodes and edges
 
@@ -359,9 +359,9 @@ class Graph():
                 # assert node['module'].bias is not None, ('this rewiring may not work in case of no biases', node)
                 for out_neigh in np.where(A[i, :])[0]:  # all nodes where there is an edge from i
                     A[np.where(A[:, out_neigh])[0], i] = 1  # rewire edges coming to out_neigh (bias) to node i (weight)
-                    # A[i, i] = 0  # remove loop
                     A[:, out_neigh] = 0  # remove all edges to out_neigh except for the edge from i to out_neigh
                     A[i, out_neigh] = 1
+                    A[i, i] = 0  # remove loop
 
         # Add input node
         nodes.append({'id': 'input', 'param_name': 'input', 'attrs': None, 'module': None})

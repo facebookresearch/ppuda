@@ -65,6 +65,8 @@ def init_config(mode='eval'):
                         help='number of cpu processes to use')
     parser.add_argument('--device', type=str, default=default_device(), help='device: cpu or cuda')
     parser.add_argument('--debug', type=int, default=1, help='the level of details printed out, 0 is the minimal level.')
+    parser.add_argument('--ckpt', type=str, default=None,
+                        help='path to load the network/GHN parameters from')
 
     is_train_ghn = mode == 'train_ghn'
     is_train_net = mode == 'train_net'
@@ -80,8 +82,6 @@ def init_config(mode='eval'):
                             help='one of the architectures: '
                                  'string for the predefined genotypes such as DARTS; '
                                  'the architecture index from DeepNets-1M')
-        parser.add_argument('--ckpt', type=str, default=None,
-                            help='path to load the network/GHN parameters from')
         parser.add_argument('--noise', action='store_true', help='add noise to validation/test images')
         if is_train_net:
             parser.add_argument('--pretrained', action='store_true', help='use pretrained torchvision.models')

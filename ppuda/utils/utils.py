@@ -105,7 +105,7 @@ def adjust_net(net, large_input=False):
     :param large_input: True if the input images are large (224x224 or more).
     :return: the adjusted network
     """
-    net.expected_image_sz = 224 if large_input else 32
+    net.expected_input_sz = 224 if large_input else 32
 
     if large_input:
         return net
