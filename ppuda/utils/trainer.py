@@ -98,7 +98,7 @@ class Trainer():
         loss = loss / len(logits)         # mean loss across models
 
         if torch.isnan(loss):
-            raise RuntimeError('the loss is {}, unable to proceed'.format(loss))
+            raise RuntimeError('the loss is {}, unable to proceed. This issue can often be fixed by restarting the script and loading the saved checkpoint using the --ckpt argument.'.format(loss))
 
         if self.amp:
             # Scales the loss, and calls backward()

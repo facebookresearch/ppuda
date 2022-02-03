@@ -46,21 +46,50 @@ def main():
                                      num_nets=args.num_nets,
                                      large_images=is_imagenet)
 
-    ghn = GHN(max_shape=args.max_shape,
-              num_classes=num_classes,
-              hypernet=args.hypernet,
-              decoder=args.decoder,
-              weight_norm=args.weight_norm,
-              ve=args.virtual_edges > 1,
-              layernorm=args.ln,
-              hid=args.hid,
+
+    start_epoch = 0
+    state_dict = None
+    if args.ckpt is not None:
+        # Load config and GHN parameters from existing checkpoint
+        state_dict = torch.load(args.ckpt, map_location=args.device)
+        config = state_dict['config']
+    else:
+        config = {}
+        config['max_shape'] = args.max_shape
+        config['num_classes'] = num_classes
+        config['hypernet'] = args.hypernet
+        config['decoder'] = args.decoder
+        config['weight_norm'] = args.weight_norm
+        config['ve'] = args.virtual_edges > 1
+        config['layernorm'] = args.ln
+        config['hid'] = args.hid
+
+
+    ghn = GHN(**config,
               debug_level=args.debug).to(args.device)
+
+    if state_dict is not None:
+        ghn.load_state_dict(state_dict['state_dict'])
+        if args.debug:
+            print('GHN with {} parameters loaded from epoch {}.'.format(capacity(ghn)[1], state_dict['epoch']))
+        start_epoch = state_dict['epoch'] + 1  # resume from the next epoch
+
+
     if args.multigpu:
         ghn = ghn_parallel(ghn)
 
 
     optimizer = torch.optim.Adam(ghn.parameters(), args.lr, weight_decay=args.wd)
     scheduler = MultiStepLR(optimizer, milestones=args.lr_steps, gamma=args.gamma)
+
+    if state_dict is not None:
+        try:
+            optimizer.load_state_dict(state_dict['optimzer'])
+        except Exception as e:
+            print('WARNING: optimizer is not available in the checkpoint, available keys: ', state_dict.keys(), 'error:', e, '\n')
+
+        if start_epoch > 0:
+            scheduler.step(start_epoch)
 
     trainer = Trainer(optimizer,
                       num_classes,
@@ -76,7 +105,7 @@ def main():
 
     print('\nStarting training GHN with {} parameters!'.format(capacity(ghn)[1]))
 
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
 
         print('\nepoch={:03d}/{:03d}, lr={:e}'.format(epoch + 1, args.epochs, scheduler.get_last_lr()[0]))
 
@@ -138,16 +167,6 @@ def main():
 
         if args.save:
             # Save config necessary to restore GHN configuration when evaluating it
-            config = {}
-            config['max_shape'] = args.max_shape
-            config['num_classes'] = num_classes
-            config['hypernet'] = args.hypernet
-            config['decoder'] = args.decoder
-            config['weight_norm'] = args.weight_norm
-            config['ve'] = (ghn.module if args.multigpu else ghn).ve
-            config['layernorm'] = args.ln
-            config['hid'] = args.hid
-
             checkpoint_path = os.path.join(args.save, 'ghn.pt')
             torch.save({'state_dict': (ghn.module if args.multigpu else ghn).state_dict(),
                         'optimzer': optimizer.state_dict(),
@@ -161,6 +180,7 @@ def main():
 
         # Evaluation is done in a separate script: eval_ghn.py
 
+    print('done!')
 
 if __name__ == '__main__':
     main()
