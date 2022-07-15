@@ -12,6 +12,7 @@ Graph HyperNetworks.
 
 import torch
 import torch.nn as nn
+import numpy as np
 import os
 from .mlp import MLP
 from .gatedgnn import GatedGNN
@@ -90,6 +91,7 @@ class GHN(nn.Module):
         super(GHN, self).__init__()
 
         assert len(max_shape) == 4, max_shape
+        self.max_shape = max_shape
         self.layernorm = layernorm
         self.weight_norm = weight_norm
         self.ve = ve
@@ -195,50 +197,59 @@ class GHN(nn.Module):
             x = self.ln(x)
 
         # Predict max-sized parameters for a batch of nets using decoders
-        w = {}
+        n_tensors, n_params = 0, 0
         for key, inds in param_groups.items():
             if len(inds) == 0:
                 continue
             x_ = x[torch.tensor(inds, device=x.device)]
-            if key == 'cls_w':
-                w[key] = self.decoder(x_, (1, 1), class_pred=True)
-            elif key.startswith('4d'):
-                sz = tuple(map(int, key.split('-')[1:]))
-                w[key] = self.decoder(x_, sz, class_pred=False)
-            else:
-                if key.startswith('3d'):
-                    w[key] = self.decoder_1d(x_).view(len(inds), -1, 1, 1)
+
+            sz = key
+            is_cls = False
+            if len(sz) in [2, 3]:
+                if len(sz) == 2 and sz[1] > 0:
+                    # classification layer
+                    w = self.decoder(x_, (sz[0], sz[1], 1, 1), class_pred=True)
+                    is_cls = True
                 else:
-                    w[key] = self.decoder_1d(x_).view(len(inds), 2, -1)
-                if key == 'cls_b':
-                    w[key] = self.bias_class(w[key])
+                    # 1d or cls-b
+                    if len(sz) == 3:
+                        w = self.decoder_1d(x_).view(len(inds), -1, 1, 1)
+                    else:
+                        w = self.decoder_1d(x_).view(len(inds), 2, -1)
+                        if len(sz) == 2 and sz[1] < 0:
+                            w = self.bias_class(w)
+                            is_cls = True
+            else:
+                assert len(sz) == 4, sz
+                w = self.decoder(x_, sz, class_pred=False)
 
-        # Transfer predicted parameters (w) to the networks
-        n_tensors, n_params = 0, 0
-        for matched, key, w_ind in params_map.values():
-
-            if w_ind is None:
-                continue  # e.g. pooling
-
-            if not predict_class_layers and key in ['cls_w', 'cls_b']:
+            if not predict_class_layers and is_cls:
                 continue  # do not set the classification parameters when fine-tuning
 
-            m, sz, is_w = matched['module'], matched['sz'], matched['is_w']
-            for it in range(2 if (len(sz) == 1 and is_w) else 1):
+            # Transfer predicted parameters (w) to the networks
+            for ind in inds:
+                matched, _, w_ind = params_map[ind]
 
-                if len(sz) == 1:
-                    # separately set for BN/LN biases as they are
-                    # not represented as separate nodes in graphs
-                    w_ = w[key][w_ind][1 - is_w + it]
-                    if it == 1:
-                        assert (type(m) in NormLayers and key == '1d'), \
-                            (type(m), key)
-                else:
-                    w_ = w[key][w_ind]
+                if w_ind is None:
+                    continue  # e.g. pooling
 
-                sz_set = self._set_params(m, self._tile_params(w_, sz), is_w=is_w & ~it)
-                n_tensors += 1
-                n_params += torch.prod(torch.tensor(sz_set))
+                m, sz, is_w = matched['module'], matched['sz'], matched['is_w']
+                for it in range(2 if (len(sz) == 1 and is_w) else 1):
+
+                    if len(sz) == 1:
+                        # separately set for BN/LN biases as they are
+                        # not represented as separate nodes in graphs
+                        w_ = w[w_ind][1 - is_w + it]
+                        if it == 1:
+                            assert (type(m) in NormLayers and len(key) == 2 and key[1] == 0), \
+                                (type(m), key)
+                    else:
+                        w_ = w[w_ind]
+
+                    sz_set = self._set_params(m, self._tile_params(w_, sz), is_w=is_w & ~it)
+                    n_tensors += 1
+                    n_params += torch.prod(torch.tensor(sz_set))
+
 
         if not self.training and bn_train:
 
@@ -303,25 +314,22 @@ class GHN(nn.Module):
         nets_torch = [nets_torch] if type(nets_torch) not in [tuple, list] else nets_torch
 
         for b, (node_info, net) in enumerate(zip(graphs.node_info, nets_torch)):
-            target_modules = named_layered_modules(net)
 
+            target_modules = net.__dict__['_layered_modules'] if self.training else named_layered_modules(net)
+
+            # print(target_modules)
             param_ind = torch.sum(graphs.n_nodes[:b]).item()
 
             for cell_id in range(len(node_info)):
-                matched_names = []
-                for (node_ind, param_name, name, sz, last_weight, last_bias) in node_info[cell_id]:
+                for (node_ind, p_, name, sz, last_weight, last_bias) in node_info[cell_id]:
 
-                    matched = []
-                    for m in target_modules[cell_id]:
-                        if m['param_name'].startswith(param_name):
-                            matched.append(m)
-                            if not sanity_check:
-                                break
-                    if len(matched) > 1:
-                        raise ValueError(cell_id, node_ind, param_name, name, [
-                            (t, (m.weight if is_w else m.bias).shape) for
-                            t, m, is_w in matched])
-                    elif len(matched) == 0:
+                    param_name = p_ if p_.endswith(('.weight', '.bias', 'in_proj_weight', 'in_proj_bias')) else p_ + '.weight'
+                    try:
+                        matched = [target_modules[cell_id][param_name]]
+                    except:
+                        matched = []
+
+                    if len(matched) == 0:
                         if sz is not None:
                             params_map[param_ind + node_ind] = ({'sz': sz}, None, None)
 
@@ -335,29 +343,37 @@ class GHN(nn.Module):
                                  node_info[cell_id],
                                  target_modules[cell_id])
                     else:
-                        matched_names.append(matched[0]['param_name'])
                         sz = matched[0]['sz']
+
+                        def min_sz(j):
+                            # to group predicted shapes and improve parallelization and at the same time not to predict much more than needed
+                            n = min(sz[j], self.max_shape[j])
+                            if n % 3 == 0:
+                                n = n // 3 * 4  # make multiple of 4 to be consistent with the decoder
+                            if n >= self.max_shape[j] / 2:
+                                n = self.max_shape[j]
+                            return n
+
                         if len(sz) == 1:
-                            key = 'cls_b' if last_bias else '1d'
+                            key = (min_sz(0), -1) if last_bias else (min_sz(0), 0)
                         elif last_weight:
-                            key = 'cls_w'
+                            key = (min_sz(0), min_sz(1))
+                        elif len(sz) == 2:
+                            key = (min_sz(0), min_sz(1), 1, 1)
                         elif len(sz) == 3:
-                            key = '3d-%d' % sz[0]
+                            key = (min_sz(0), min_sz(1), min_sz(2))  # e.g. layer_scale in ConvNeXt
                         else:
-                            key = '4d-%d-%d' % ((1, 1) if len(sz) == 2 else sz[2:])
+                            key = (min_sz(0), min_sz(1), sz[2], sz[3])
+
                         if key not in mapping:
                             mapping[key] = []
                         params_map[param_ind + node_ind] = (matched[0], key, len(mapping[key]))
                         mapping[key].append(param_ind + node_ind)
-
-                assert len(matched_names) == len(set(matched_names)), (
-                    'all matched names must be unique to avoid predicting the same paramters for different moduels',
-                    len(matched_names), len(set(matched_names)))
-                matched_names = set(matched_names)
+                        del target_modules[cell_id][param_name]
 
                 # Prune redundant ops in Network by setting their params to None
-                for m in target_modules[cell_id]:
-                    if m['is_w'] and m['param_name'] not in matched_names:
+                for m in target_modules[cell_id].values():
+                    if m['is_w']:
                         m['module'].weight = None
                         if hasattr(m['module'], 'bias') and m['module'].bias is not None:
                             m['module'].bias = None
@@ -394,7 +410,7 @@ class GHN(nn.Module):
 
         # Tile out_channels
         if t[0] > s[0]:
-            n_out = t[0] // s[0] + 1
+            n_out = int(np.ceil(t[0] / s[0]))
             if len(t) == 1:
                 w = w.repeat(n_out)[:t[0]]
             elif len(t) == 2:
@@ -407,7 +423,7 @@ class GHN(nn.Module):
         # Tile in_channels
         if len(t) > 1:
             if t[1] > s[1]:
-                n_in = t[1] // s[1] + 1
+                n_in = int(np.ceil(t[1] / s[1]))
                 if len(t) == 2:
                     w = w.repeat((1, n_in))[:, :t[1]]
                 elif len(t) == 3:

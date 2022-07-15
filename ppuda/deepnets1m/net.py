@@ -20,9 +20,10 @@ from ..utils import drop_path
 class Cell(nn.Module):
 
     def __init__(self, genotype, C_prev_prev, C_prev, C_in, C_out, reduction, reduction_prev,
-                 norm='bn', preproc=True, is_vit=False):
+                 norm='bn', preproc=True, is_vit=False, cell_ind=0):
         super(Cell, self).__init__()
         self._is_vit = is_vit
+        self._cell_ind = cell_ind
         self._has_none = sum([n[0] == 'none' for n in genotype.normal + genotype.reduce]) > 0
         self.genotype = genotype
 
@@ -261,7 +262,8 @@ class Network(nn.Module):
                         reduction_prev=reduction_prev,
                         norm=norm,
                         is_vit=self._is_vit,
-                        preproc=preproc)
+                        preproc=preproc,
+                        cell_ind=cell_ind)
             self.cells.append(cell)
 
             reduction_prev = reduction
@@ -293,8 +295,7 @@ class Network(nn.Module):
         self.classifier = nn.Sequential(*fc)
 
         if compress_params:
-            for p in self.parameters():
-                p.data = p.data.bool()
+            self.__dict__['_layered_modules'] = named_layered_modules(self)
 
 
     def forward(self, input):
@@ -354,8 +355,12 @@ def named_layered_modules(model):
     if hasattr(model, 'module'):  # in case of multigpu model
         model = model.module
     layers = model._n_cells if hasattr(model, '_n_cells') else 1
-    layered_modules = [[] for _ in range(layers)]
+    layered_modules = [{} for _ in range(layers)]
+    cell_ind = 0
     for module_name, m in model.named_modules():
+
+        cell_ind = m._cell_ind if hasattr(m, '_cell_ind') else cell_ind
+
         is_layer_scale = hasattr(m, 'layer_scale') and m.layer_scale is not None
         is_w = (hasattr(m, 'weight') and m.weight is not None) or is_layer_scale
         is_b = hasattr(m, 'bias') and m.bias is not None
@@ -363,14 +368,15 @@ def named_layered_modules(model):
         if is_w or is_b:
             if module_name.startswith('module.'):
                 module_name = module_name[module_name.find('.') + 1:]
-            cell_ind = get_cell_ind(module_name, layers)
             if is_w:
-                layered_modules[cell_ind].append(
-                    {'param_name': module_name + ('.layer_scale' if is_layer_scale else '.weight'),
-                     'module': m, 'is_w': True,
-                     'sz': (m.layer_scale if is_layer_scale else m.weight).shape})
+                key = module_name + ('.layer_scale' if is_layer_scale else '.weight')
+                w = m.layer_scale if is_layer_scale else m.weight
+                layered_modules[cell_ind][key] = {'param_name': key, 'module': m, 'is_w': True,
+                                                  'sz': tuple(w) if isinstance(w, (list, tuple)) else w.shape}
             if is_b:
-                layered_modules[cell_ind].append(
-                    {'param_name': module_name + '.bias', 'module': m, 'is_w': False, 'sz': m.bias.shape})
+                key = module_name + '.bias'
+                b = m.bias
+                layered_modules[cell_ind][key] = {'param_name': key, 'module': m, 'is_w': False,
+                                                  'sz': tuple(b) if isinstance(b, (list, tuple)) else b.shape}
 
     return layered_modules

@@ -785,5 +785,7 @@ try:
     import torchvision
     MODULES[torchvision.models.convnext.LayerNorm2d] = MODULES[nn.LayerNorm]
     # MODULES[torchvision.models.convnext.CNBlock] = MODULES[nn.LayerNorm]
+    # we can pretend that layer_scale in CNBlock is the same as LayerNorm and this way predict all ConvNeXt parameters,
+    # but this does not have benefits in fine-tuning
 except Exception as e:
     print(e, 'convnext requires torchvision >= 0.12, current version is ', torchvision.__version__)
