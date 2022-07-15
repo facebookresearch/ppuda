@@ -182,7 +182,7 @@ class GHN(nn.Module):
         param_groups, params_map = self._map_net_params(graphs, nets_torch, self.debug_level > 0)
 
         if self.debug_level or not self.training:
-            n_params_true = sum([capacity(net)[1] for net in (nets_torch if isinstance(nets_torch, list) else [nets_torch])])
+            n_params_true = sum([capacity(net, is_grad=False)[1] for net in (nets_torch if isinstance(nets_torch, list) else [nets_torch])])
             if self.debug_level > 1:
                 print('\nnumber of learnable parameter tensors: {}, total number of parameters: {}'.format(
                     valid_ops, n_params_true))
@@ -457,7 +457,7 @@ class GHN(nn.Module):
         is_layer_scale = hasattr(module, 'layer_scale') and module.layer_scale is not None
         key = ('layer_scale' if is_layer_scale else 'weight' ) if is_w else 'bias'
         target_param = getattr(module, key)
-        sz_target = target_param.shape
+        sz_target = tuple(target_param) if isinstance(target_param, (list, tuple)) else target_param.shape
         if self.training:
             module.__dict__[key] = tensor  # set the value avoiding the internal logic of PyTorch
             # update parameters, so that named_parameters() will return tensors

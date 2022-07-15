@@ -14,8 +14,10 @@ Some functionality in this script is based on:
 
 
 import torch
+import torchvision
 import torch.nn as nn
 from einops import rearrange
+from .light_ops import *
 
 
 def parse_op_ks(op):
@@ -44,7 +46,34 @@ def parse_op_ks(op):
     return op_name, ks
 
 
-NormLayers = [nn.BatchNorm2d, nn.LayerNorm]
+def bn_layer(norm, C, light):
+    if norm in [None, '', 'none']:
+        norm_layer = nn.Identity()
+    elif norm.startswith('bn'):
+        if light:
+            norm_layer = BatchNorm2dLight(C,
+                                           track_running_stats=norm.find('track') >= 0)
+        else:
+            norm_layer = nn.BatchNorm2d(C,
+                                        track_running_stats=norm.find('track') >= 0)
+    else:
+        raise NotImplementedError(norm)
+    return norm_layer
+
+
+def ln_layer(C, light):
+    return LayerNormLight(C) if light else nn.LayerNorm(C)
+
+
+def conv_layer(light):
+    return Conv2dLight if light else nn.Conv2d
+
+
+def lin_layer(light):
+    return LinearLight if light else nn.Linear
+
+
+NormLayers = [nn.BatchNorm2d, nn.LayerNorm, BatchNorm2dLight, LayerNormLight]
 try:
     import torchvision
     NormLayers.append(torchvision.models.convnext.LayerNorm2d)
@@ -52,29 +81,18 @@ except Exception as e:
     print(e, 'convnext requires torchvision >= 0.12, current version is ', torchvision.__version__)
 
 
-def get_norm_layer(norm, C):
-    if norm in [None, '', 'none']:
-        norm_layer = nn.Identity()
-    elif norm.startswith('bn'):
-        norm_layer = nn.BatchNorm2d(C,
-                                    track_running_stats=norm.find('track') >= 0)
-    else:
-        raise NotImplementedError(norm)
-    return norm_layer
-
-
 OPS = {
-    'none' : lambda C_in, C_out, ks, stride, norm: Zero(stride),
-    'skip_connect' : lambda C_in, C_out, ks, stride, norm: nn.Identity() if stride == 1 else FactorizedReduce(C_in, C_out, norm=norm),
-    'avg_pool' : lambda C_in, C_out, ks, stride, norm: nn.AvgPool2d(ks, stride=stride, padding=ks // 2, count_include_pad=False),
-    'max_pool' : lambda C_in, C_out, ks, stride, norm: nn.MaxPool2d(ks, stride=stride, padding=ks // 2),
-    'conv' : lambda C_in, C_out, ks, stride, norm: ReLUConvBN(C_in, C_out, ks, stride, ks // 2, norm),
-    'sep_conv' : lambda C_in, C_out, ks, stride, norm: SepConv(C_in, C_out, ks, stride, ks // 2, norm=norm),
-    'dil_conv' : lambda C_in, C_out, ks, stride, norm: DilConv(C_in, C_out, ks, stride, ks - ks % 2, 2, norm=norm),
-    'conv2' : lambda C_in, C_out, ks, stride, norm: ReLUConvBN(C_in, C_out, ks, stride, ks // 2, norm, double=True),
-    'conv_stride' : lambda C_in, C_out, ks, stride, norm: nn.Conv2d(C_in, C_out, ks, stride=ks, bias=False, padding=int(ks < 4)),
-    'msa':  lambda C_in, C_out, ks, stride, norm: Transformer(C_in, dim_out=C_out, stride=stride),
-    'cse':  lambda C_in, C_out, ks, stride, norm: ChannelSELayer(C_in, dim_out=C_out, stride=stride),
+    'none' : lambda C_in, C_out, ks, stride, norm, light: Zero(stride),
+    'skip_connect' : lambda C_in, C_out, ks, stride, norm, light: nn.Identity() if stride == 1 else FactorizedReduce(C_in, C_out, norm=norm, light=light),
+    'avg_pool' : lambda C_in, C_out, ks, stride, norm, light: nn.AvgPool2d(ks, stride=stride, padding=ks // 2, count_include_pad=False),
+    'max_pool' : lambda C_in, C_out, ks, stride, norm, light: nn.MaxPool2d(ks, stride=stride, padding=ks // 2),
+    'conv' : lambda C_in, C_out, ks, stride, norm, light: ReLUConvBN(C_in, C_out, ks, stride, ks // 2, norm, light=light),
+    'sep_conv' : lambda C_in, C_out, ks, stride, norm, light: SepConv(C_in, C_out, ks, stride, ks // 2, norm=norm, light=light),
+    'dil_conv' : lambda C_in, C_out, ks, stride, norm, light: DilConv(C_in, C_out, ks, stride, ks - ks % 2, 2, norm=norm, light=light),
+    'conv2' : lambda C_in, C_out, ks, stride, norm, light: ReLUConvBN(C_in, C_out, ks, stride, ks // 2, norm, double=True, light=light),
+    'conv_stride' : lambda C_in, C_out, ks, stride, norm, light: conv_layer(light)(C_in, C_out, ks, stride=ks, bias=False, padding=int(ks < 4)),
+    'msa':  lambda C_in, C_out, ks, stride, norm, light: Transformer(C_in, dim_out=C_out, stride=stride, light=light),
+    'cse':  lambda C_in, C_out, ks, stride, norm, light: ChannelSELayer(C_in, dim_out=C_out, stride=stride, light=light),
 }
 
 
@@ -109,7 +127,7 @@ class ChannelSELayer(nn.Module):
 
     """
 
-    def __init__(self, num_channels, reduction_ratio=2, dim_out=None, stride=1):
+    def __init__(self, num_channels, reduction_ratio=2, dim_out=None, stride=1, light=False):
         """
         :param num_channels: No of input channels
         :param reduction_ratio: By how much should the num_channels should be reduced
@@ -120,8 +138,8 @@ class ChannelSELayer(nn.Module):
         num_channels_reduced = num_channels // reduction_ratio
         self.reduction_ratio = reduction_ratio
         self.stride = stride
-        self.fc1 = nn.Linear(num_channels, num_channels_reduced, bias=True)
-        self.fc2 = nn.Linear(num_channels_reduced, num_channels, bias=True)
+        self.fc1 = lin_layer(light)(num_channels, num_channels_reduced, bias=True)
+        self.fc2 = lin_layer(light)(num_channels_reduced, num_channels, bias=True)
         self.relu = nn.ReLU()
         self.sigmoid = nn.Hardswish()
 
@@ -146,13 +164,13 @@ class ChannelSELayer(nn.Module):
 
 
 class FeedForward(nn.Module):
-    def __init__(self, dim, hidden_dim, dropout = 0.):
+    def __init__(self, dim, hidden_dim, dropout = 0., light=False):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(dim, hidden_dim),
+            lin_layer(light)(dim, hidden_dim),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim, dim),
+            lin_layer(light)(hidden_dim, dim),
             nn.Dropout(dropout)
         )
     def forward(self, x):
@@ -160,9 +178,10 @@ class FeedForward(nn.Module):
 
 
 class PosEnc(nn.Module):
-    def __init__(self, C, ks):
+    def __init__(self, C, ks, light=False):
         super().__init__()
-        self.weight = nn.Parameter(torch.randn(1, C, ks, ks))
+        fn = torch.empty if light else torch.randn
+        self.weight = nn.Parameter(fn(1, C, ks, ks))
 
     def forward(self, x):
         return  x + self.weight
@@ -195,7 +214,7 @@ class Transformer(nn.Module):
     SOFTWARE.
 
     """
-    def __init__(self, dim, dim_out=None, heads=8, dim_head=None, dropout=0., stride=1):
+    def __init__(self, dim, dim_out=None, heads=8, dim_head=None, dropout=0., stride=1, light=False):
         super().__init__()
         self.stride = stride
         if dim_head is None:
@@ -204,15 +223,15 @@ class Transformer(nn.Module):
         self.heads = heads
         self.scale = dim_head ** -0.5
 
-        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias=False)
+        self.to_qkv = lin_layer(light)(dim, inner_dim * 3, bias=False)
         self.to_out = nn.Sequential(
-            nn.Linear(inner_dim, dim_out),
+            lin_layer(light)(inner_dim, dim_out),
             nn.Dropout(dropout)
         )
 
-        self.ln1 = nn.LayerNorm(dim)
-        self.ln2 = nn.LayerNorm(dim_out)
-        self.ff = FeedForward(dim, dim_out)
+        self.ln1 = ln_layer(dim, light)
+        self.ln2 = ln_layer(dim, light)
+        self.ff = FeedForward(dim, dim_out, light=light)
         self.stride = stride
 
     def forward(self, x, mask=None):
@@ -461,21 +480,21 @@ class Transformer(nn.Module):
 
 class ReLUConvBN(nn.Module):
 
-    def __init__(self, C_in, C_out, ks=1, stride=1, padding=0, norm='bn', double=False):
+    def __init__(self, C_in, C_out, ks=1, stride=1, padding=0, norm='bn', double=False, light=False):
         super(ReLUConvBN, self).__init__()
         self.stride = stride
         if double:
             conv = [
-                nn.Conv2d(C_in, C_in, (1, ks), stride=(1, stride),
+                conv_layer(light)(C_in, C_in, (1, ks), stride=(1, stride),
                           padding=(0, padding), bias=False),
-                nn.Conv2d(C_in, C_out, (ks, 1), stride=(stride, 1),
+                conv_layer(light)(C_in, C_out, (ks, 1), stride=(stride, 1),
                           padding=(padding, 0), bias=False)]
         else:
-            conv = [nn.Conv2d(C_in, C_out, ks, stride=stride, padding=padding, bias=False)]
+            conv = [conv_layer(light)(C_in, C_out, ks, stride=stride, padding=padding, bias=False)]
         self.op = nn.Sequential(
             nn.ReLU(inplace=False),
             *conv,
-            get_norm_layer(norm, C_out))
+            bn_layer(norm, C_out, light))
 
     def forward(self, x):
         return self.op(x)
@@ -483,15 +502,15 @@ class ReLUConvBN(nn.Module):
 
 class DilConv(nn.Module):
     
-    def __init__(self, C_in, C_out, ks, stride, padding, dilation, norm='bn'):
+    def __init__(self, C_in, C_out, ks, stride, padding, dilation, norm='bn', light=False):
         super(DilConv, self).__init__()
         self.stride = stride
 
         self.op = nn.Sequential(
             nn.ReLU(inplace=False),
-            nn.Conv2d(C_in, C_in, kernel_size=ks, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False),
-            nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False),
-            get_norm_layer(norm, C_out)
+            conv_layer(light)(C_in, C_in, kernel_size=ks, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False),
+            conv_layer(light)(C_in, C_out, kernel_size=1, padding=0, bias=False),
+            bn_layer(norm, C_out, light)
             )
 
     def forward(self, x):
@@ -500,19 +519,19 @@ class DilConv(nn.Module):
 
 class SepConv(nn.Module):
     
-    def __init__(self, C_in, C_out, ks, stride, padding, norm='bn'):
+    def __init__(self, C_in, C_out, ks, stride, padding, norm='bn', light=False):
         super(SepConv, self).__init__()
         self.stride = stride
 
         self.op = nn.Sequential(
             nn.ReLU(inplace=False),
-            nn.Conv2d(C_in, C_in, kernel_size=ks, stride=stride, padding=padding, groups=C_in, bias=False),
-            nn.Conv2d(C_in, C_in, kernel_size=1, padding=0, bias=False),
-            get_norm_layer(norm, C_in),
+            conv_layer(light)(C_in, C_in, kernel_size=ks, stride=stride, padding=padding, groups=C_in, bias=False),
+            conv_layer(light)(C_in, C_in, kernel_size=1, padding=0, bias=False),
+            bn_layer(norm, C_in, light),
             nn.ReLU(inplace=False),
-            nn.Conv2d(C_in, C_in, kernel_size=ks, stride=1, padding=padding, groups=C_in, bias=False),
-            nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False),
-            get_norm_layer(norm, C_out)
+            conv_layer(light)(C_in, C_in, kernel_size=ks, stride=1, padding=padding, groups=C_in, bias=False),
+            conv_layer(light)(C_in, C_out, kernel_size=1, padding=0, bias=False),
+            bn_layer(norm, C_out, light)
             )
 
     def forward(self, x):
@@ -542,14 +561,14 @@ class Zero(nn.Module):
 
 
 class FactorizedReduce(nn.Module):
-    def __init__(self, C_in, C_out, norm='bn', stride=2):
+    def __init__(self, C_in, C_out, norm='bn', stride=2, light=False):
         super(FactorizedReduce, self).__init__()
         assert C_out % 2 == 0
         self.stride = stride
         self.relu = nn.ReLU(inplace=False)
-        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=stride, padding=0, bias=False)
-        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=stride, padding=0, bias=False)
-        self.bn = get_norm_layer(norm, C_out)
+        self.conv_1 = conv_layer(light)(C_in, C_out // 2, 1, stride=stride, padding=0, bias=False)
+        self.conv_2 = conv_layer(light)(C_in, C_out // 2, 1, stride=stride, padding=0, bias=False)
+        self.bn = bn_layer(norm, C_out, light)
 
     def forward(self, x):
         x = self.relu(x)

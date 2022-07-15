@@ -13,14 +13,14 @@ Some functionality in this script is based on the DARTS code: https://github.com
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .ops import OPS, ReLUConvBN, FactorizedReduce, PosEnc, Zero, Stride, parse_op_ks, get_norm_layer
+from .ops import OPS, ReLUConvBN, FactorizedReduce, PosEnc, Zero, Stride, parse_op_ks, bn_layer, lin_layer, conv_layer
 from ..utils import drop_path
 
 
 class Cell(nn.Module):
 
     def __init__(self, genotype, C_prev_prev, C_prev, C_in, C_out, reduction, reduction_prev,
-                 norm='bn', preproc=True, is_vit=False, cell_ind=0):
+                 norm='bn', preproc=True, is_vit=False, light=False, cell_ind=0):
         super(Cell, self).__init__()
         self._is_vit = is_vit
         self._cell_ind = cell_ind
@@ -46,10 +46,10 @@ class Cell(nn.Module):
         else:
             op_names, indices = zip(*genotype.normal)
             concat = genotype.normal_concat
-        self._compile(C_in, C_out, op_names, indices, concat, reduction, norm)
+        self._compile(C_in, C_out, op_names, indices, concat, reduction, norm, light)
 
 
-    def _compile(self, C_in, C_out, op_names, indices, concat, reduction, norm):
+    def _compile(self, C_in, C_out, op_names, indices, concat, reduction, norm, light):
         assert len(op_names) == len(indices)
         self._steps = len(op_names) // 2
         self._concat = concat
@@ -59,7 +59,7 @@ class Cell(nn.Module):
         for i, (name, index) in enumerate(zip(op_names, indices)):
             stride = 2 if (reduction and index < 2 and not self._is_vit) else 1
             name, ks = parse_op_ks(name)
-            self._ops.append(OPS[name](C_in if index <= 1 else C_out, C_out, ks, stride, norm))
+            self._ops.append(OPS[name](C_in if index <= 1 else C_out, C_out, ks, stride, norm, light))
 
         self._indices = indices
 
@@ -117,20 +117,20 @@ class Cell(nn.Module):
 
 class AuxiliaryHeadCIFAR(nn.Module):
 
-    def __init__(self, C, num_classes, norm='bn', pool_sz=5):
+    def __init__(self, C, num_classes, norm='bn', pool_sz=5, light=False):
         """assuming input size 8x8"""
         super(AuxiliaryHeadCIFAR, self).__init__()
         self.features = nn.Sequential(
             nn.ReLU(inplace=True),
             nn.AvgPool2d(pool_sz, stride=min(pool_sz, 3), padding=0, count_include_pad=False),  # image size = 2 x 2
-            nn.Conv2d(C, 128, 1, bias=False),
-            get_norm_layer(norm, 128),
+            conv_layer(light)(C, 128, 1, bias=False),
+            bn_layer(norm, 128, light),
             nn.ReLU(inplace=True),
-            nn.Conv2d(128, 768, 2, bias=False),
-            get_norm_layer(norm, 768),
+            conv_layer(light)(128, 768, 2, bias=False),
+            bn_layer(norm, 768, light),
             nn.ReLU(inplace=True)
         )
-        self.classifier = nn.Linear(768, num_classes)
+        self.classifier = lin_layer(light)(768, num_classes)
 
     def forward(self, x):
         assert self.training, 'this module is assumed to be used only for training'
@@ -141,22 +141,22 @@ class AuxiliaryHeadCIFAR(nn.Module):
 
 class AuxiliaryHeadImageNet(nn.Module):
 
-    def __init__(self, C, num_classes, norm='bn'):
+    def __init__(self, C, num_classes, norm='bn', light=False):
         """assuming input size 14x14"""
         super(AuxiliaryHeadImageNet, self).__init__()
         self.features = nn.Sequential(
             nn.ReLU(inplace=True),
             nn.AvgPool2d(5, stride=2, padding=0, count_include_pad=False),
-            nn.Conv2d(C, 128, 1, bias=False),
-            get_norm_layer(norm, 128),
+            conv_layer(light)(C, 128, 1, bias=False),
+            bn_layer(norm, 128, light),
             nn.ReLU(inplace=True),
-            nn.Conv2d(128, 768, 2, bias=False),
+            conv_layer(light)(128, 768, 2, bias=False),
             # NOTE: This batchnorm was omitted in my earlier implementation due to a typo.
             # Commenting it out for consistency with the experiments in the paper.
-            # get_norm_layer(norm, 768),
+            # bn_layer(norm, 768),
             nn.ReLU(inplace=True)
         )
-        self.classifier = nn.Linear(768, num_classes)
+        self.classifier = lin_layer(light)(768, num_classes)
 
     def forward(self, x):
         assert self.training, 'this module is assumed to be used only for training'
@@ -184,7 +184,7 @@ class Network(nn.Module):
                  fc_dim=0,
                  glob_avg=True,
                  auxiliary=False,
-                 compress_params=False
+                 light=False
                  ):
         super(Network, self).__init__()
 
@@ -207,16 +207,16 @@ class Network(nn.Module):
         # Define the stem
         if self._is_vit:
             # Visual Transformer stem
-            self.stem0 = OPS['conv_stride'](3, C, 16 if is_imagenet_input else 3, None, norm)
-            self.pos_enc = PosEnc(C, 14 if is_imagenet_input else 11)
+            self.stem0 = OPS['conv_stride'](3, C, 16 if is_imagenet_input else 3, None, norm, light)
+            self.pos_enc = PosEnc(C, 14 if is_imagenet_input else 11, light)
 
         elif stem_type == 0:
             # Simple stem
             C_stem = int(C * (3 if (preproc and not is_imagenet_input) else 1))
 
             self.stem = nn.Sequential(
-                nn.Conv2d(3, C_stem, ks, stride=4 if is_imagenet_input else 1, padding=ks // 2, bias=False),
-                get_norm_layer(norm, C_stem),
+                conv_layer(light)(3, C_stem, ks, stride=4 if is_imagenet_input else 1, padding=ks // 2, bias=False),
+                bn_layer(norm, C_stem, light),
                 nn.MaxPool2d(3, stride=2, padding=1, ceil_mode=False) if stem_pool else nn.Identity(),
             )
             C_prev_prev = C_prev = C_stem
@@ -224,17 +224,17 @@ class Network(nn.Module):
         else:
             # ImageNet-style stem
             self.stem0 = nn.Sequential(
-                nn.Conv2d(3, C // 2, kernel_size=ks, stride=2 if is_imagenet_input else 1, padding=ks // 2, bias=False),
-                get_norm_layer(norm, C // 2),
+                conv_layer(light)(3, C // 2, kernel_size=ks, stride=2 if is_imagenet_input else 1, padding=ks // 2, bias=False),
+                bn_layer(norm, C // 2, light),
                 nn.ReLU(inplace=True),
-                nn.Conv2d(C // 2, C, kernel_size=3, stride=2 if is_imagenet_input else 1, padding=1, bias=False),
-                get_norm_layer(norm, C)
+                conv_layer(light)(C // 2, C, kernel_size=3, stride=2 if is_imagenet_input else 1, padding=1, bias=False),
+                bn_layer(norm, C, light)
             )
 
             self.stem1 = nn.Sequential(
                 nn.ReLU(inplace=True),
-                nn.Conv2d(C, C, 3, stride=2, padding=1, bias=False),
-                get_norm_layer(norm, C)
+                conv_layer(light)(C, C, 3, stride=2, padding=1, bias=False),
+                bn_layer(norm, C, light)
             )
 
         self._n_cells = n_cells
@@ -263,6 +263,7 @@ class Network(nn.Module):
                         norm=norm,
                         is_vit=self._is_vit,
                         preproc=preproc,
+                        light=light,
                         cell_ind=cell_ind)
             self.cells.append(cell)
 
@@ -286,15 +287,15 @@ class Network(nn.Module):
                 s = 4 if (stem_type == 1 or stem_pool) else 8
             C_prev *= s ** 2
 
-        fc = [nn.Linear(C_prev, fc_dim if fc_layers > 1 else num_classes)]
+        fc = [lin_layer(light)(C_prev, fc_dim if fc_layers > 1 else num_classes)]
         for i in range(fc_layers - 1):
             assert fc_dim > 0, fc_dim
             fc.append(nn.ReLU(inplace=True))
             fc.append(nn.Dropout(p=0.5, inplace=False))
-            fc.append(nn.Linear(in_features=fc_dim, out_features=fc_dim if i < fc_layers - 2 else num_classes))
+            fc.append(lin_layer(light)(in_features=fc_dim, out_features=fc_dim if i < fc_layers - 2 else num_classes))
         self.classifier = nn.Sequential(*fc)
 
-        if compress_params:
+        if light:
             self.__dict__['_layered_modules'] = named_layered_modules(self)
 
 

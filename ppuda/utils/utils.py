@@ -196,12 +196,13 @@ def set_seed(seed, only_torch=False):
     torch.cuda.manual_seed_all(seed)
 
 
-def capacity(model):
+def capacity(model, is_grad=True):
     c, n = 0, 0
     for name, p in model.named_parameters():
-        if p.requires_grad:
+        if not is_grad or (is_grad and p.requires_grad):
             c += 1
-            n += np.prod(p.shape)
+            sz = p if isinstance(p, (tuple, list)) else p.shape
+            n += np.prod(sz)
     return c, int(n)
 
 
