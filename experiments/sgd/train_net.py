@@ -34,7 +34,7 @@ from ppuda.deepnets1m.net import Network
 from ppuda.deepnets1m.loader import DeepNets1M
 from ppuda.deepnets1m.genotypes import ViT, DARTS
 import ppuda.deepnets1m.genotypes as genotypes
-from ppuda.utils import capacity, adjust_net, infer, pretrained_model, Trainer
+from ppuda.utils import capacity, adjust_net, infer, pretrained_model, Trainer, init
 from ppuda.ghn.nn import GHN
 
 
@@ -60,44 +60,65 @@ def main():
     assert args.arch is not None, 'architecture genotype/index must be specified'
 
     try:
-        genotype = eval('genotypes.%s' % args.arch)
+        arch = genotype = eval('genotypes.%s' % args.arch)
         net_args = {'C': args.init_channels,
                     'genotype': genotype,
                     'n_cells': args.layers,
                     'C_mult': int(genotype != ViT) + 1,  # assume either ViT or DARTS-style architecture
                     'preproc': genotype != ViT,
                     'stem_type': 1}  # assume that the ImageNet-style stem is used by default
-    except:
-        deepnets = DeepNets1M(split=args.split,
-                              nets_dir=args.data_dir,
-                              large_images=is_imagenet,
-                              arch=args.arch)
-        assert len(deepnets) == 1, 'one architecture must be chosen to train'
-        graph = deepnets[0]
-        net_args, idx = graph.net_args, graph.net_idx
-        if 'norm' in net_args and net_args['norm'] == 'bn':
-            net_args['norm'] = 'bn-track'
-    if isinstance(net_args['genotype'], str):
-        model = adjust_net(eval('torchvision.models.%s(pretrained=%d)' % (net_args['genotype'], args.pretrained)), is_imagenet)
+    except (SyntaxError, AttributeError):
+        try:
+            arch = args.arch
+            if args.arch is not None:
+                arch = int(args.arch)
+            deepnets = DeepNets1M(split=args.split,
+                                  nets_dir=args.data_dir,
+                                  large_images=is_imagenet,
+                                  arch=arch)
+            assert len(deepnets) == 1, 'one architecture must be chosen to train'
+            graph = deepnets[0]
+            net_args, idx = graph.net_args, graph.net_idx
+            if 'norm' in net_args and net_args['norm'] == 'bn':
+                net_args['norm'] = 'bn-track'
+            arch = net_args['genotype']
+        except ValueError:
+            arch = args.arch.lower()
+
+    if isinstance(arch, str):
+        model = adjust_net(eval('torchvision.models.%s(pretrained=%d,num_classes=%d)' %
+                                (arch, args.pretrained, 1000 if args.pretrained else num_classes)),
+                           is_imagenet or args.imsize > 32)
     else:
         model = Network(num_classes=num_classes,
-                        is_imagenet_input=is_imagenet,
+                        is_imagenet_input=is_imagenet or args.imsize > 32,
                         auxiliary=args.auxiliary,
                         **net_args)
 
-    if args.ckpt is not None or isinstance(model, torchvision.models.ResNet):
+    if (args.ckpt or (args.pretrained and model.__module__.startswith('torchvision.models'))):
+        assert bool(args.ckpt is not None) != args.pretrained, 'ckpt and pretrained are mutually exclusive'
+        model.expected_input_sz = args.imsize
         model = pretrained_model(model, args.ckpt, num_classes, args.debug, GHN)
+
+    model = init(model,
+                 orth=args.init.lower() == 'orth',
+                 beta=args.beta,
+                 layer=args.layer,
+                 max_sz=64,
+                 verbose=args.debug > 1)
 
     model = model.train().to(args.device)
 
-    print('\nTraining arch={} with {} parameters'.format(args.arch, capacity(model)[1]))
+    print('Training arch={} with {} parameters'.format(args.arch, capacity(model)[1]))
 
-    optimizer = torch.optim.SGD(
-        model.parameters(),
-        args.lr,
-        momentum=args.momentum,
-        weight_decay=args.wd
-    )
+    if args.opt == 'sgd':
+        optimizer = torch.optim.SGD(model.parameters(), args.lr, momentum=args.momentum, weight_decay=args.wd)
+    elif args.opt == 'adam':
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
+    elif args.opt == 'adamw':
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
+    else:
+        raise NotImplementedError(args.opt)
 
     if is_imagenet:
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, 0.97)

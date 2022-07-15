@@ -45,6 +45,11 @@ def parse_op_ks(op):
 
 
 NormLayers = [nn.BatchNorm2d, nn.LayerNorm]
+try:
+    import torchvision
+    NormLayers.append(torchvision.models.convnext.LayerNorm2d)
+except Exception as e:
+    print(e, 'convnext requires torchvision >= 0.12, current version is ', torchvision.__version__)
 
 
 def get_norm_layer(norm, C):

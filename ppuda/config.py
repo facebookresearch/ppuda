@@ -20,6 +20,7 @@ import platform
 import time
 import os
 import torch
+import torchvision
 import torch.backends.cudnn as cudnn
 from .utils import set_seed, default_device
 
@@ -34,8 +35,12 @@ except Exception as e:
     env['git commit'] = 'no git'
 env['hostname'] = platform.node()
 env['torch'] = torch.__version__
-if env['torch'][0] in ['0', '1'] and not env['torch'].startswith('1.9'):
-    print('WARNING: pytorch >= 1.9 is strongly recommended for this repo!')
+env['torchvision'] = torchvision.__version__
+try:
+    assert list(map(lambda x: float(x), env['torch'].split('.')[:2])) >= [1, 9]
+except:
+    print('WARNING: PyTorch version {} is used, but version >= 1.9 is strongly recommended for this repo!'.format(env['torch']))
+
 
 env['cuda available'] = torch.cuda.is_available()
 env['cudnn enabled'] = cudnn.enabled
@@ -65,7 +70,7 @@ def init_config(mode='eval'):
                         help='number of cpu processes to use')
     parser.add_argument('--device', type=str, default=default_device(), help='device: cpu or cuda')
     parser.add_argument('--debug', type=int, default=1, help='the level of details printed out, 0 is the minimal level.')
-    parser.add_argument('--ckpt', type=str, default=None,
+    parser.add_argument('-C', '--ckpt', type=str, default=None,
                         help='path to load the network/GHN parameters from')
 
     is_train_ghn = mode == 'train_ghn'
@@ -109,6 +114,8 @@ def init_config(mode='eval'):
 
         parser.add_argument('-b', '--batch_size', type=int, default=batch_size, help='image batch size for training')
         parser.add_argument('-e', '--epochs', type=int, default=epochs, help='number of epochs to train')
+        parser.add_argument('--opt', type=str, default='sgd' if is_train_net else 'adam',
+                            choices=['sgd', 'adam', 'adamw'], help='optimizer')
         parser.add_argument('--lr', type=float, default=lr, help='initial learning rate')
         parser.add_argument('--grad_clip', type=float, default=5, help='grad clip')
         parser.add_argument('-l', '--log_interval', type=int, default=10 if is_detection else 100,
@@ -152,6 +159,12 @@ def init_config(mode='eval'):
             parser.add_argument('--drop_path_prob', type=float, default=0, help='drop path probability')
             parser.add_argument('--n_shots', type=int, default=None, help='number of training images per class for fine-tuning experiments')
 
+            parser.add_argument('--init', type=str, default='rand', choices=['rand', 'orth'], help='init method')
+            parser.add_argument('--layer', type=int, default=0, help='layer after each to add noise')
+            parser.add_argument('--beta', type=float, default=0,
+                                help='standard deviation of the Gaussian noise added to parameters')
+            parser.add_argument('--imsize', type=int, default=224 if is_imagenet else 32,
+                                choices=[32, 224], help='image size used to train and eval models')
 
     args = parser.parse_args()
 

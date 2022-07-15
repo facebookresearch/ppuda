@@ -202,6 +202,11 @@ class Graph():
         self.nx_graph = None  # NetworkX DiGraph instance
 
         if model is not None:
+
+            if isinstance(model, torchvision.models.vision_transformer.VisionTransformer):
+                raise NotImplementedError('Official PyTorch VisionTransformer module is not supported in the graph construction process. '
+                                          'Use the deepnets1m.net.Network class and deepnets1m.genotypes.ViT to construct it.')
+
             sz = model.expected_input_sz if hasattr(model, 'expected_input_sz') else 224   # assume ImageNet image width/heigh by default
             self.expected_input_sz = sz if isinstance(sz, (tuple, list)) else (3, sz, sz)  # assume images by default
             self.n_cells = self.model._n_cells if hasattr(self.model, '_n_cells') else 1
@@ -305,6 +310,18 @@ class Graph():
                         if hasattr(u[0], 'variable'):
                             var = u[0].variable
                             name, module = param_map[id(var)]
+
+                            if type(module) not in MODULES:
+                                print('WARNING: unrecognized layer {}, params = {}, type = {}'.format(name,
+                                                                                                      sum([p.numel() for
+                                                                                                           n, p in
+                                                                                                           module.named_parameters()
+                                                                                                           if (n.find('layer_scale') >= 0 or
+                                                                                                               n.find('weight') >= 0 or
+                                                                                                               n.find('bias') >= 0)]),
+                                                                                                      type(module)))
+                                continue
+
                             if type(module) in NormLayers and name.find('.bias') >= 0:
                                 continue  # do not add biases of NormLayers as nodes
                             leaf_nodes.append({'id': u[0],
@@ -585,15 +602,20 @@ class Graph():
         Helper function to automatically build the graphs.
         :return:
         """
-
         modules = {}
         for n, m in self.model.named_modules():
-            is_w = hasattr(m, 'weight') and m.weight is not None
-            is_b = hasattr(m, 'bias') and m.bias is not None
-            if is_w:
-                modules[n + '.weight'] = (m.weight, m)
-            if is_b:
-                modules[n + '.bias'] = (m.bias, m)
+            for np, p in m.named_parameters(recurse=False):
+                if p is None:
+                    continue
+                key = n + '.' + np
+                if key in modules:
+                    assert id(p) == id(modules[key][0]), (n, np, p.shape, modules[key][0].shape)
+                    continue
+                modules[key] = (p, m)
+
+        n_params = len(list(self.model.named_parameters()))
+        assert len(modules) == n_params, (len(modules), n_params)
+
         return modules
 
 
@@ -758,3 +780,10 @@ MODULES = {
             'Add': 'sum',
             'Cat': 'concat',
         }
+
+try:
+    import torchvision
+    MODULES[torchvision.models.convnext.LayerNorm2d] = MODULES[nn.LayerNorm]
+    # MODULES[torchvision.models.convnext.CNBlock] = MODULES[nn.LayerNorm]
+except Exception as e:
+    print(e, 'convnext requires torchvision >= 0.12, current version is ', torchvision.__version__)

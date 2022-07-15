@@ -88,12 +88,19 @@ def pretrained_model(model, ckpt, num_classes, debug, ghn_class):
                 res = model.load_state_dict(state_dict, strict=False)
             print('loaded pretrained model from {} (result = {})'.format(ckpt, res))
 
-    elif isinstance(model, torchvision.models.ResNet):
-        if num_classes != 1000:
-            model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
-        print('loaded pretrained {} torchvision model'.format(model.__class__.__name__))
     else:
-        raise NotImplementedError('model classification layer must be adjusted', type(model))
+        if isinstance(model, torchvision.models.ResNet):
+            if num_classes != 1000:
+                model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+        elif isinstance(model, torchvision.models.ConvNeXt):
+            if num_classes != 1000:
+                fc = list(model.classifier.children())
+                fc[-1] = nn.Linear(fc[-1].in_features, num_classes)
+                model.classifier = torch.nn.Sequential(*fc)
+        else:
+            raise NotImplementedError('model classification layer must be adjusted', type(model))
+
+        print('loaded pretrained {} torchvision model'.format(model.__class__.__name__))
 
     return model
 
@@ -168,6 +175,10 @@ def adjust_net(net, large_input=False):
 
         net.conv1.stride = 1
         net.maxpool1 = nn.Identity()
+
+    elif isinstance(net, torchvision.models.ConvNeXt):
+        module = list(net.features[0].children())[0]
+        module.stride = 1
 
     else:
         print('WARNING: the network (%s) is not adapted for small inputs which may result in lower performance' % str(

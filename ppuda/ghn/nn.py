@@ -164,14 +164,14 @@ class GHN(nn.Module):
                 nets_torch = nets_torch[0]
 
             if self.debug_level:
-                if self.debug_level > 1:
-                    valid_ops = graphs[0].num_valid_nodes(nets_torch)
-                start_time = time.time()  # do not count any debugging steps above
+                start_time = time.time()
 
             if graphs is None:
                 graphs = GraphBatch([Graph(nets_torch, ve_cutoff=50 if self.ve else 1)])
                 graphs.to_device(self.embed.weight.device)
 
+            if self.debug_level > 1:
+                valid_ops = graphs[0].num_valid_nodes(nets_torch)
         else:
             assert graphs is not None, \
                 'constructing the graph on the fly is only supported in the evaluation mode'
@@ -206,7 +206,10 @@ class GHN(nn.Module):
                 sz = tuple(map(int, key.split('-')[1:]))
                 w[key] = self.decoder(x_, sz, class_pred=False)
             else:
-                w[key] = self.decoder_1d(x_).view(len(inds), 2, -1)#.clone()
+                if key.startswith('3d'):
+                    w[key] = self.decoder_1d(x_).view(len(inds), -1, 1, 1)
+                else:
+                    w[key] = self.decoder_1d(x_).view(len(inds), 2, -1)
                 if key == 'cls_b':
                     w[key] = self.bias_class(w[key])
 
@@ -254,13 +257,14 @@ class GHN(nn.Module):
                   'total parameters predicted: {} ({}), time to predict (on {}): {:.4f} sec'.format(
                 n_tensors,
                 n_params,
-                ('matched!' if n_params_true == n_params else 'error! not matched').upper(),
+                ('matched!' if n_params_true == n_params else 'error! not matched with {} actual params'.format(n_params_true)).upper(),
                 str(x.device).upper(),
                 end_time))
 
             if self.debug_level > 1:
-                assert valid_ops == n_tensors, (
-                    'number of learnable tensors ({}) must be the same as the number of predicted tensors ({})'.format(
+                if valid_ops != n_tensors:
+                    print(
+                    'WARNING: number of learnable tensors ({}) must be the same as the number of predicted tensors ({})'.format(
                         valid_ops, n_tensors))
 
 
@@ -276,8 +280,10 @@ class GHN(nn.Module):
                         p.std().item(),
                         torch.norm(p).item()))
         elif self.debug_level or not self.training:
-            assert n_params == n_params_true, ('number of predicted ({}) or actual ({}) parameters must match'.format(
-                n_params, n_params_true))
+            if n_params != n_params_true:
+                print(
+                    'WARNING: number of predicted ({}) or actual ({}) parameters must match'.format(
+                        n_params, n_params_true))
 
         return (nets_torch, x) if return_embeddings else nets_torch
 
@@ -335,6 +341,8 @@ class GHN(nn.Module):
                             key = 'cls_b' if last_bias else '1d'
                         elif last_weight:
                             key = 'cls_w'
+                        elif len(sz) == 3:
+                            key = '3d-%d' % sz[0]
                         else:
                             key = '4d-%d-%d' % ((1, 1) if len(sz) == 2 else sz[2:])
                         if key not in mapping:
@@ -375,6 +383,9 @@ class GHN(nn.Module):
         elif len(t) == 2:
             if len(s) > 2:
                 w = w[:min(t[0], s[0]), :min(t[1], s[1]), 0, 0]
+        elif len(t) == 3:
+            if len(s) > 3:
+                w = w[:min(t[0], s[0]), :min(t[1], s[1]), :min(t[2], s[2]), 0]
         else:
             w = w[:min(t[0], s[0]), :min(t[1], s[1]), :min(t[2], s[2]), :min(t[3], s[3])]
 
@@ -388,6 +399,8 @@ class GHN(nn.Module):
                 w = w.repeat(n_out)[:t[0]]
             elif len(t) == 2:
                 w = w.repeat((n_out, 1))[:t[0]]
+            elif len(t) == 3:
+                w = w.repeat((n_out, 1, 1))[:t[0]]
             else:
                 w = w.repeat((n_out, 1, 1, 1))[:t[0]]
 
@@ -397,6 +410,8 @@ class GHN(nn.Module):
                 n_in = t[1] // s[1] + 1
                 if len(t) == 2:
                     w = w.repeat((1, n_in))[:, :t[1]]
+                elif len(t) == 3:
+                    w = w.repeat((1, n_in, 1))[:, t[1]]
                 else:
                     w = w.repeat((1, n_in, 1, 1))[:, :t[1]]
 
@@ -405,6 +420,8 @@ class GHN(nn.Module):
             w = w[:t[0]]
         elif len(t) == 2:
             w = w[:t[0], :t[1]]
+        elif len(t) == 3:
+            w = w[:t[0], :t[1], :t[2]]
         else:
             w = w[:t[0], :t[1], :t[2], :t[3]]
 
@@ -421,8 +438,9 @@ class GHN(nn.Module):
         """
         if self.weight_norm:
             tensor = self._normalize(module, tensor, is_w)
-        key = 'weight' if is_w else 'bias'
-        target_param = module.weight if is_w else module.bias
+        is_layer_scale = hasattr(module, 'layer_scale') and module.layer_scale is not None
+        key = ('layer_scale' if is_layer_scale else 'weight' ) if is_w else 'bias'
+        target_param = getattr(module, key)
         sz_target = target_param.shape
         if self.training:
             module.__dict__[key] = tensor  # set the value avoiding the internal logic of PyTorch
@@ -434,7 +452,7 @@ class GHN(nn.Module):
             # copy to make sure there is no sharing of memory
             target_param.data = tensor.clone()
 
-        set_param = module.weight if is_w else module.bias
+        set_param = getattr(module, key)
         assert sz_target == set_param.shape, (sz_target, set_param.shape)
         return set_param.shape
 

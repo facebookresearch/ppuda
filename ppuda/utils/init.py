@@ -1,0 +1,163 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
+"""
+Initialization.
+
+"""
+
+import torch
+
+
+def init(model, orth=True, beta=0, layer=0, max_sz=0, verbose=False):
+    """
+    Transforms the parameters (weights) of a neural net for initialization based on the paper
+    "Boris Knyazev. Pretraining a Neural Network before Knowing Its Architecture.
+    First Workshop of Pre-training: Perspectives, Pitfalls, and Paths Forward at ICML 2022."
+
+    :param model: pytorch neural net
+    :param orth: orthogonalize or not
+    :param beta: noise scaler for conv/linear layers
+    :param beta_norm: noise scaler for 1D batch/layer norm layers
+    :param layer: the layer starting from which to transform the parameters
+    :param max_sz: number of input/output channels starting from which to transform the parameters
+    :param verbose: print debugging information
+    :return: neural net with transformed parameters
+    """
+
+    if not (orth or beta > 0 or layer > 0 or max_sz > 0):
+        return model
+
+    print(
+        '\npostprocessing parameters: orth={} \t beta={} \t layer={} \t max_sz={}\n'.format(
+            orth, beta, layer, max_sz
+        ))
+
+    skip_shallow = model.__module__.startswith('torchvision.models.convnext')   # do not add noise to layers before the specified layer
+
+    layer_2d = 0  # layer counter
+
+    has_weight = lambda m: hasattr(m, 'weight') and m.weight is not None and m.weight.dim() > 0
+    has_2dplus_weight = lambda m: has_weight(m) and m.weight.dim() >= 2
+    num_2d_layers = len([m for m in model.modules() if has_2dplus_weight(m)])
+
+    for module in model.modules():
+
+        if not has_weight(module):
+            continue  # skip the layers that do not have the 'weight' attribute
+
+        layer_2d += has_2dplus_weight(module)
+
+        if layer_2d == num_2d_layers:
+            continue  # skip the last classification layer
+
+        weight = module.weight.data
+        sz = weight.shape
+
+        ev_max = get_eigs(weight).max().item()  # for statistics
+        m1, m2 = weight.min().item(), weight.max().item()  # for statistics
+
+        def print_stats(w, ev_max, m1, m2, name):
+            print(
+                '{}\t layer = {} \t shape = {} \t{} min-max before:after = {:.2f}-{:.2f} : {:.2f}-{:.2f} \t{}'
+                ' max eig before:after = {:.2f} \t: {:.2f}'.format(
+                    name, layer_2d, tuple(w.shape), '\t' if w.dim() <= 2 else '',
+                    m1, m2, w.min().item(), w.max().item(), '\t' if w.min() > 0 else '',
+                    ev_max, get_eigs(w).max().item()))
+
+        if has_2dplus_weight(module):
+
+            if beta > 0:
+                std_r = get_corr(weight).std()
+                if beta > 0 and (not skip_shallow or (skip_shallow and max(sz[:2]) > max_sz and layer_2d >= layer)):
+                    noise = beta * std_r * torch.randn_like(weight[max_sz:, max_sz:])
+                    weight[max_sz:, max_sz:].data += noise
+
+                    if verbose:
+                        print_stats(weight, ev_max, m1, m2, 'add noise to conv-w: ')
+
+                    # Can add noise to bias, but was not found beneficial
+
+            if orth and max(sz[:2]) > max_sz and layer_2d >= layer:
+                weight = orthogonalize(weight)
+                if verbose:
+                    print_stats(weight, ev_max, m1, m2, 'orthogonalization: ')
+
+        elif len(sz) == 1 and (not skip_shallow or (skip_shallow and sz[0] > max_sz and layer_2d >= layer)):
+            # Assume batch/layer norm follows convolution so use statistics from the preceding convolution layer
+            weight[max_sz:].data += beta * std_r * torch.randn_like(weight[max_sz:])
+
+            if verbose:
+                print_stats(weight, ev_max, m1, m2, 'add noise to norm-w: ')
+
+            if hasattr(module, 'bias') and module.bias is not None:
+                ev_max = get_eigs(module.bias).max().item()  # for statistics
+                m1, m2 = module.bias.min().item(), module.bias.max().item()  # for statistics
+                module.bias[max_sz:].data += beta * std_r * torch.randn_like(module.bias[max_sz:])
+
+                if verbose:
+                    print_stats(module.bias, ev_max, m1, m2, 'add noise to norm-b: ')
+
+        assert weight.shape == module.weight.shape, (weight.shape, module.weight.shape)
+        module.weight.data = weight
+
+    if verbose:
+        print('\ndone initialization!\n')
+
+    return model
+
+
+def orthogonalize(w):
+    """
+    Runs QR decomposition of weights and returns orthogonalized weights.
+    :param w: 4D or 2D weights
+    :return: orthogonalized weights of the same shape as input
+    """
+    flattened, is_transposed = weights2mat(w)
+    rows, cols = flattened.shape
+    assert rows >= cols, flattened.shape
+    q, r = torch.linalg.qr(flattened)
+    d = torch.diag(r, 0)
+    ph = d.sign()
+    q *= ph
+    if is_transposed:
+        q.t_()
+    return q.view_as(w)
+
+
+def get_eigs(w):
+    """
+    Computes eigenvalues of the weights.
+    :param w: weights
+    :return: eigenvalues
+    """
+    w = weights2mat(w)[0]
+    evals, V = torch.linalg.eigh(w.t() @ w)
+    return evals
+
+
+def get_corr(w):
+    """
+    Computes correlation of the weight matrix.
+    :param w: 2D weight
+    :return: flattened correlation values
+    """
+    corr = torch.corrcoef(weights2mat(w)[0]).flatten()
+    return corr
+
+
+def weights2mat(w):
+    """
+    Converts n-D weights to 2D.
+    :param w: n-D weights
+    :param as_numpy:
+    :return: 2D weights
+    """
+    w = w.reshape(w.shape[0], -1)
+    is_transposed = w.shape[0] < w.shape[1]
+    if is_transposed:
+        w = w.t()
+    return w, is_transposed

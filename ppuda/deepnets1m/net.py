@@ -356,7 +356,8 @@ def named_layered_modules(model):
     layers = model._n_cells if hasattr(model, '_n_cells') else 1
     layered_modules = [[] for _ in range(layers)]
     for module_name, m in model.named_modules():
-        is_w = hasattr(m, 'weight') and m.weight is not None
+        is_layer_scale = hasattr(m, 'layer_scale') and m.layer_scale is not None
+        is_w = (hasattr(m, 'weight') and m.weight is not None) or is_layer_scale
         is_b = hasattr(m, 'bias') and m.bias is not None
 
         if is_w or is_b:
@@ -365,7 +366,9 @@ def named_layered_modules(model):
             cell_ind = get_cell_ind(module_name, layers)
             if is_w:
                 layered_modules[cell_ind].append(
-                    {'param_name': module_name + '.weight', 'module': m, 'is_w': True, 'sz': m.weight.shape})
+                    {'param_name': module_name + ('.layer_scale' if is_layer_scale else '.weight'),
+                     'module': m, 'is_w': True,
+                     'sz': (m.layer_scale if is_layer_scale else m.weight).shape})
             if is_b:
                 layered_modules[cell_ind].append(
                     {'param_name': module_name + '.bias', 'module': m, 'is_w': False, 'sz': m.bias.shape})
