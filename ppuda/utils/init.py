@@ -86,7 +86,7 @@ def init(model, orth=True, beta=0, layer=0, max_sz=0, verbose=False):
                 if verbose:
                     print_stats(weight, ev_max, m1, m2, 'orthogonalization: ')
 
-        elif len(sz) == 1 and (not skip_shallow or (skip_shallow and sz[0] > max_sz and layer_2d >= layer)):
+        elif len(sz) == 1 and beta > 0 and (not skip_shallow or (skip_shallow and sz[0] > max_sz and layer_2d >= layer)):
             # Assume batch/layer norm follows convolution so use statistics from the preceding convolution layer
             weight[max_sz:].data += beta * std_r * torch.randn_like(weight[max_sz:])
 
