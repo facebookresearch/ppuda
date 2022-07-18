@@ -19,7 +19,7 @@ from .transforms import transforms_cifar, transforms_imagenet
 from .imagenet import ImageNetDataset
 
 
-def image_loader(dataset='imagenet', data_dir='./data/', test=True, fine_tune=False,
+def image_loader(dataset='imagenet', data_dir='./data/', test=True, im_size=32,
                  batch_size=64, test_batch_size=64, num_workers=0,
                  cutout=False, cutout_length=16, noise=False,
                  seed=1111, load_train_anyway=False, n_shots=None):
@@ -28,7 +28,7 @@ def image_loader(dataset='imagenet', data_dir='./data/', test=True, fine_tune=Fa
     :param dataset: image dataset: imagenet, cifar10, cifar100, etc.
     :param data_dir: location of the dataset
     :param test: True to load the test data for evaluation, False to load the validation data.
-    :param fine_tune: True when fine-tuning an ImageNet model on CIFAR-10
+    :param im_size: image size for CIFAR data (ignored for dataset='imagenet')
     :param batch_size: training batch size of images
     :param test_batch_size: evaluation batch size of images
     :param num_workers: number of threads to load/preprocess images
@@ -59,7 +59,7 @@ def image_loader(dataset='imagenet', data_dir='./data/', test=True, fine_tune=Fa
 
     else:
         dataset = dataset.upper()
-        train_transform, valid_transform = transforms_cifar(cutout=cutout, cutout_length=cutout_length, noise=noise, sz=224 if fine_tune else 32)
+        train_transform, valid_transform = transforms_cifar(cutout=cutout, cutout_length=cutout_length, noise=noise, sz=im_size)
         if test:
             valid_data = eval('{}(data_dir, train=False, download=True, transform=valid_transform)'.format(dataset))
             if load_train_anyway:
@@ -81,6 +81,9 @@ def image_loader(dataset='imagenet', data_dir='./data/', test=True, fine_tune=Fa
 
             valid_data.data = valid_data.data[idx_val]
             valid_data.targets = [valid_data.targets[i] for i in idx_val]
+
+            if n_shots is not None:
+                train_data = to_few_shot(train_data, n_shots=n_shots)
 
         if train_data is not None:
             train_data.checksum = train_data.data.mean()

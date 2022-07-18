@@ -165,6 +165,7 @@ def init_config(mode='eval'):
                                 help='standard deviation of the Gaussian noise added to parameters')
             parser.add_argument('--imsize', type=int, default=224 if is_imagenet else 32,
                                 choices=[32, 224], help='image size used to train and eval models')
+            parser.add_argument('--val', action='store_true', default=False, help='evaluate on the validation set')
 
     args = parser.parse_args()
 

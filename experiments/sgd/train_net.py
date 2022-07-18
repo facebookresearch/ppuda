@@ -27,6 +27,7 @@ Example:
 import torch
 import torchvision
 import torch.utils
+import time
 import os
 from ppuda.config import init_config
 from ppuda.vision.loader import image_loader
@@ -45,7 +46,8 @@ def main():
     is_imagenet = args.dataset == 'imagenet'
     train_queue, valid_queue, num_classes = image_loader(dataset=args.dataset,
                                                          data_dir=args.data_dir,
-                                                         test=True,
+                                                         test=not args.val,
+                                                         im_size=args.imsize,
                                                          load_train_anyway=True,
                                                          batch_size=args.batch_size,
                                                          test_batch_size=args.test_batch_size,
@@ -56,6 +58,12 @@ def main():
                                                          noise=args.noise,
                                                          n_shots=args.n_shots)
 
+    if args.val:
+        test_queue = image_loader(dataset=args.dataset,
+                                  data_dir=args.data_dir,
+                                  test=True,
+                                  im_size=args.imsize,
+                                  test_batch_size=args.test_batch_size)[1]
 
     assert args.arch is not None, 'architecture genotype/index must be specified'
 
@@ -157,6 +165,11 @@ def main():
         infer(model.eval(), valid_queue, verbose=True)
 
         scheduler.step()
+
+    if args.val:
+        infer(model.eval(), test_queue, verbose=True)
+
+    print('\ndone at {}!'.format(time.strftime('%Y%m%d-%H%M%S')))
 
 if __name__ == '__main__':
     main()
