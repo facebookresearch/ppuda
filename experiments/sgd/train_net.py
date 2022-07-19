@@ -112,7 +112,6 @@ def main():
                  orth=args.init.lower() == 'orth',
                  beta=args.beta,
                  layer=args.layer,
-                 max_sz=0,
                  verbose=args.debug > 1)
 
     model = model.train().to(args.device)
