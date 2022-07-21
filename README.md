@@ -6,6 +6,8 @@ authors: [Boris Knyazev](http://bknyaz.github.io/), [Michal Drozdzal](https://sc
 
 
 **Updates**
+- [Jul 21, 2022] Fine-tuning of predicted parameters is improved and parameter prediction for [ConvNeXt](https://arxiv.org/abs/2201.03545) is added (see [report](https://arxiv.org/abs/2207.10049) and respective code changes in [PR#7](https://github.com/facebookresearch/ppuda/pull/7)) 
+- [Jul 21, 2022] Training speed of GHNs is further improved (see [PR#7](https://github.com/facebookresearch/ppuda/pull/7) for details).
 - [Jan 12, 2022] Training speed of GHNs is improved significantly in some cases (see [PR#2](https://github.com/facebookresearch/ppuda/pull/2) for details).
 - [Nov 24, 2021] Video of Yannic Kilcher reviewing our paper together with Boris Knyazev is available on [YouTube](https://youtu.be/3HUK2UWzlFA)
 
@@ -221,6 +223,19 @@ where `$split` is one from `val, test, wide, deep, dense, bnfree, predefined`, `
 
 The parameters predicted by GHN-2 trained on ImageNet can be fine-tuned on any vision dataset, such as CIFAR-10.
 
+
+**[Update Jul 21, 2022]**
+
+According to the report ([Pretraining a Neural Network before Knowing Its Architecture](https://arxiv.org/abs/2207.10049)) showing improved fine-tuning results, the following arguments are added to the code: `--opt`, `--init`, `--imsize`, `--beta`, `--layer`.
+
+- For example, to obtain fine-tuning results of `GHN-orth` for **ResNet-50**:
+`python experiments/sgd/train_net.py --split predefined --arch 0 --epochs 300 -d cifar10 --n_shots 100 --lr 0.01 --wd 0.01 --ckpt ./checkpoints/ghn2_imagenet.pt --opt sgd --init orth --imsize 32 --beta 3e-5 --layer 37`
+
+- For **[ConvNeXt-Base](https://arxiv.org/abs/2201.03545)**:
+`python experiments/sgd/train_net.py --arch convnext_base --epochs 300 -d cifar10 --n_shots 100 --lr 0.001 --wd 0.1 --ckpt ./checkpoints/ghn2_imagenet.pt --opt adamw --init orth --imsize 32 --beta 3e-5 --layer 94`.
+Multiple warnings will be printed that some layers of ConvNeXt are not supported by GHNs, which is intended.
+
+Below are the commands to reproduce the original (NeurIPS 2021) results.
 
 ### 100-shot CIFAR-10
 
