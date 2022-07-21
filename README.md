@@ -229,11 +229,12 @@ The parameters predicted by GHN-2 trained on ImageNet can be fine-tuned on any v
 According to the report ([Pretraining a Neural Network before Knowing Its Architecture](https://arxiv.org/abs/2207.10049)) showing improved fine-tuning results, the following arguments are added to the code: `--opt`, `--init`, `--imsize`, `--beta`, `--layer`.
 
 - For example, to obtain fine-tuning results of `GHN-orth` for **ResNet-50**:
-`python experiments/sgd/train_net.py --split predefined --arch 0 --epochs 300 -d cifar10 --n_shots 100 --lr 0.01 --wd 0.01 --ckpt ./checkpoints/ghn2_imagenet.pt --opt sgd --init orth --imsize 32 --beta 3e-5 --layer 37`
+`python experiments/sgd/train_net.py --val --split predefined --arch 0 --epochs 300 -d cifar10 --n_shots 100 --lr 0.01 --wd 0.01 --ckpt ./checkpoints/ghn2_imagenet.pt --opt sgd --init orth --imsize 32 --beta 3e-5 --layer 37`
 
 - For **[ConvNeXt-Base](https://arxiv.org/abs/2201.03545)**:
-`python experiments/sgd/train_net.py --arch convnext_base --epochs 300 -d cifar10 --n_shots 100 --lr 0.001 --wd 0.1 --ckpt ./checkpoints/ghn2_imagenet.pt --opt adamw --init orth --imsize 32 --beta 3e-5 --layer 94`.
-Multiple warnings will be printed that some layers of ConvNeXt are not supported by GHNs, which is intended.
+`python experiments/sgd/train_net.py --val --arch convnext_base -b 48 --epochs 300 -d cifar10 --n_shots 100 --lr 0.001 --wd 0.1 --ckpt ./checkpoints/ghn2_imagenet.pt --opt adamw --init orth --imsize 32 --beta 3e-5 --layer 94`.
+Multiple warnings will be printed that some layers of ConvNeXt are not supported by GHNs, which is intended. Note that in the report, layer 100 is mistakenly specified as the best value, however 94 should be used for better performance.
+
 
 Below are the commands to reproduce the original (NeurIPS 2021) results.
 
