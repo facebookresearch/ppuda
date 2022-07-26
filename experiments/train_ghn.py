@@ -66,7 +66,7 @@ def main():
 
 
     ghn = GHN(**config,
-              debug_level=args.debug).to(args.device)
+              debug_level=0).to(args.device)
 
     if state_dict is not None:
         ghn.load_state_dict(state_dict['state_dict'])
@@ -125,7 +125,7 @@ def main():
                     for nets_args in graphs.net_args:
                         net = Network(is_imagenet_input=is_imagenet,
                                       num_classes=num_classes,
-                                      compress_params=True,
+                                      light=True,
                                       **nets_args)
                         nets_torch.append(net)
 

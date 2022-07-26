@@ -11,7 +11,9 @@ The script predicts parameters for the networks and evaluates them on CIFAR-10 o
 
 Example:
 
-    python examples/torch_models.py imagenet resnet50
+    1. python examples/torch_models.py imagenet resnet50
+
+    2. python examples/torch_models.py cifar10 convnext_base
 
 """
 

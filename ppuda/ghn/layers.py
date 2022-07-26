@@ -92,6 +92,8 @@ class ShapeEncoder(nn.Module):
                 sz = (sz[0], 1)
             if len(sz) == 2:
                 sz = (sz[0], sz[1], 1, 1)
+            if len(sz) == 3:
+                sz = (sz[0], sz[1], sz[2], 1)
             assert len(sz) == 4, sz
 
             if not predict_class_layers and params_map[node_ind][1] in ['cls_w', 'cls_b']:
