@@ -6,10 +6,11 @@ authors: [Boris Knyazev](http://bknyaz.github.io/), [Michal Drozdzal](https://sc
 
 
 **Updates**
-- [Mar 22, 2023] Improved Graph HyperNetwork (GHN-3) is now available with a big performance increase: [paper](https://arxiv.org/abs/2303.04143), [code](http://github.com/SamsungSAILMontreal/ghn3).
-- [Jul 21, 2022] Fine-tuning of predicted parameters is improved and parameter prediction for [ConvNeXt](https://arxiv.org/abs/2201.03545) is added (see [report](https://arxiv.org/abs/2207.10049) and respective code changes in [PR#7](https://github.com/facebookresearch/ppuda/pull/7)).  
-- [Jul 21, 2022] Training speed of GHNs is further improved (see [PR#7](https://github.com/facebookresearch/ppuda/pull/7) for details).
-- [Jan 12, 2022] Training speed of GHNs is improved significantly in some cases (see [PR#2](https://github.com/facebookresearch/ppuda/pull/2) for details).
+- [Jun 16, 2023] Code in this repo and in [GHN-3](http://github.com/SamsungSAILMontreal/ghn3) improved, [GHN-3 paper](https://arxiv.org/abs/2303.04143) to be presented at [ICML 2023](https://icml.cc/virtual/2023/poster/24569)
+- [Mar 22, 2023] Improved Graph HyperNetwork (GHN-3) is now available with a big performance increase: [paper](https://arxiv.org/abs/2303.04143), [code](http://github.com/SamsungSAILMontreal/ghn3)
+- [Jul 21, 2022] Fine-tuning of predicted parameters is improved and parameter prediction for [ConvNeXt](https://arxiv.org/abs/2201.03545) is added (see [report](https://arxiv.org/abs/2207.10049) and respective code changes in [PR#7](https://github.com/facebookresearch/ppuda/pull/7))  
+- [Jul 21, 2022] Training speed of GHNs is further improved (see [PR#7](https://github.com/facebookresearch/ppuda/pull/7) for details)
+- [Jan 12, 2022] Training speed of GHNs is improved significantly in some cases (see [PR#2](https://github.com/facebookresearch/ppuda/pull/2) for details)
 - [Nov 24, 2021] Video of Yannic Kilcher reviewing our paper together with Boris Knyazev is available on [YouTube](https://youtu.be/3HUK2UWzlFA)
 
 | Overview |  Results on ResNet-50 

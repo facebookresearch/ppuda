@@ -15,6 +15,7 @@ import os
 import torch
 from torchvision.datasets import *
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from .transforms import transforms_cifar, transforms_imagenet
 from .imagenet import ImageNetDataset
 
@@ -22,7 +23,7 @@ from .imagenet import ImageNetDataset
 def image_loader(dataset='imagenet', data_dir='./data/', test=True, im_size=32,
                  batch_size=64, test_batch_size=64, num_workers=0,
                  cutout=False, cutout_length=16, noise=False,
-                 seed=1111, load_train_anyway=False, n_shots=None):
+                 seed=1111, load_train_anyway=False, n_shots=None, ddp=False, transforms_train_val=None, verbose=True):
     """
 
     :param dataset: image dataset: imagenet, cifar10, cifar100, etc.
@@ -39,12 +40,18 @@ def image_loader(dataset='imagenet', data_dir='./data/', test=True, im_size=32,
     :param seed: random seed to shuffle validation images on ImageNet
     :param load_train_anyway: load training images even when evaluating on test data (test=True)
     :param n_shots: the number of training images per class (only for CIFAR-10 and other torchvision datasets and when test=True)
+    :param ddp: True to use DistributedDataParallel
+    :param transforms_train_val: custom transforms for training and validation images
+    :param verbose: True to print the information about the dataset
     :return: training and evaluation torch DataLoaders and number of classes in the dataset
     """
     train_data = None
 
     if dataset.lower() == 'imagenet':
-        train_transform, valid_transform = transforms_imagenet(noise=noise, cifar_style=False)
+        if transforms_train_val is None:
+            transforms_train_val = transforms_imagenet(noise=noise, cifar_style=False, im_size=im_size)
+        train_transform, valid_transform = transforms_train_val
+
         imagenet_dir = os.path.join(data_dir, 'imagenet')
 
         if not test or load_train_anyway:
@@ -52,14 +59,17 @@ def image_loader(dataset='imagenet', data_dir='./data/', test=True, im_size=32,
 
         valid_data = ImageNetDataset(imagenet_dir, 'val', transform=valid_transform, has_validation=not test)
 
-        shuffle_val = True  # to evaluate models with batch norm in the training mode (in case there is no running statistics)
+        shuffle_val = True  # to eval models with batch norm in the training mode (in case of no running statistics)
         n_classes = len(valid_data.classes)
         generator = torch.Generator()
         generator.manual_seed(seed)  # to reproduce evaluation with shuffle=True on ImageNet
 
     else:
         dataset = dataset.upper()
-        train_transform, valid_transform = transforms_cifar(cutout=cutout, cutout_length=cutout_length, noise=noise, sz=im_size)
+        if transforms_train_val is None:
+            transforms_train_val = transforms_cifar(cutout=cutout, cutout_length=cutout_length, noise=noise, sz=im_size)
+        train_transform, valid_transform = transforms_train_val
+
         if test:
             valid_data = eval('{}(data_dir, train=False, download=True, transform=valid_transform)'.format(dataset))
             if load_train_anyway:
@@ -67,7 +77,7 @@ def image_loader(dataset='imagenet', data_dir='./data/', test=True, im_size=32,
                 if n_shots is not None:
                     train_data = to_few_shot(train_data, n_shots=n_shots)
         else:
-            if n_shots is not None:
+            if n_shots is not None and verbose:
                 print('few shot regime is only supported for evaluation on the test data')
             # Held out 10% (e.g. 5000 images in case of CIFAR-10) of training data as the validation set
             train_data = eval('{}(data_dir, train=True, download=True, transform=train_transform)'.format(dataset))
@@ -96,21 +106,26 @@ def image_loader(dataset='imagenet', data_dir='./data/', test=True, im_size=32,
         valid_data.checksum = valid_data.data.mean()
         valid_data.num_examples = len(valid_data.targets)
 
-    print('loaded {}: {} classes, {} train samples (checksum={}), '
-          '{} {} samples (checksum={:.3f})'.format(dataset,
-                                                   n_classes,
-                                                   train_data.num_examples if train_data else 'none',
-                                                   ('%.3f' % train_data.checksum) if train_data else 'none',
-                                                   valid_data.num_examples,
-                                                   'test' if test else 'val',
-                                                   valid_data.checksum))
-
+    if verbose:
+        print('loaded {}: {} classes, {} train samples (checksum={}), '
+              '{} {} samples (checksum={:.3f})'.format(dataset,
+                                                       n_classes,
+                                                       train_data.num_examples if train_data else 'none',
+                                                       ('%.3f' % train_data.checksum) if train_data else 'none',
+                                                       valid_data.num_examples,
+                                                       'test' if test else 'val',
+                                                       valid_data.checksum))
 
     if train_data is None:
         train_loader = None
     else:
-        train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True,
-                                  pin_memory=True, num_workers=num_workers)
+        sampler = DistributedSampler(train_data) if ddp else None
+        train_loader = DataLoader(train_data,
+                                  batch_size=batch_size,
+                                  shuffle=sampler is None,
+                                  sampler=sampler,
+                                  pin_memory=True,
+                                  num_workers=num_workers)
 
     valid_loader = DataLoader(valid_data, batch_size=test_batch_size, shuffle=shuffle_val,
                               pin_memory=True, num_workers=num_workers, generator=generator)

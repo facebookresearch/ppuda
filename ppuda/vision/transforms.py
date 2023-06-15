@@ -85,11 +85,11 @@ def transforms_cifar(cutout=False, cutout_length=None, noise=False, sz=32):
     return train_transform, valid_transform
 
 
-def transforms_imagenet(noise=False, cifar_style=False):
+def transforms_imagenet(noise=False, cifar_style=False, im_size=224):
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
     train_transform = [
-        transforms.RandomResizedCrop((32, 32) if cifar_style else 224),
+        transforms.RandomResizedCrop((32, 32) if cifar_style else im_size),
         transforms.RandomHorizontalFlip(),
         transforms.ColorJitter(
             brightness=0.4,
@@ -104,8 +104,8 @@ def transforms_imagenet(noise=False, cifar_style=False):
     train_transform = transforms.Compose(train_transform)
 
     valid_transform = [
-        transforms.Resize((32, 32) if cifar_style else 256),
-        transforms.CenterCrop(224),
+        transforms.Resize((32, 32) if cifar_style else max(im_size, 256)),
+        transforms.CenterCrop(max(im_size, 224)),
         transforms.ToTensor()
     ]
     if cifar_style:

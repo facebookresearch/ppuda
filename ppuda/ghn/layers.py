@@ -77,6 +77,19 @@ class ShapeEncoder(nn.Module):
         self.register_buffer('dummy_ind', torch.tensor([n_ch, n_ch, n_s, n_s], dtype=torch.long).view(1, 4),
                              persistent=False)
 
+    def tensor_shape_to_4d(self, sz):
+        if len(sz) == 1:
+            sz = (sz[0], 1)
+        if len(sz) == 2:
+            sz = (sz[0], sz[1], 1, 1)
+        if len(sz) == 3:
+            # Special treatment of 3D weights for some models like ViT.
+            if sz[0] == 1 and min(sz[1:]) > 1:  # e.g. [1, 197, 768]
+                s = int(np.floor(sz[1] ** 0.5))
+                sz = (1, sz[2], s, s)
+            else:
+                sz = (sz[0], sz[1], sz[2], 1)
+        return sz
 
     def forward(self, x, params_map, predict_class_layers=True):
         shape_ind = self.dummy_ind.repeat(len(x), 1)
@@ -88,12 +101,7 @@ class ShapeEncoder(nn.Module):
                 continue
 
             sz_org = sz
-            if len(sz) == 1:
-                sz = (sz[0], 1)
-            if len(sz) == 2:
-                sz = (sz[0], sz[1], 1, 1)
-            if len(sz) == 3:
-                sz = (sz[0], sz[1], sz[2], 1)
+            sz = self.tensor_shape_to_4d(sz)
             assert len(sz) == 4, sz
 
             if not predict_class_layers and params_map[node_ind][1] in ['cls_w', 'cls_b']:
@@ -104,17 +112,19 @@ class ShapeEncoder(nn.Module):
             for i in range(4):
                 # if not in the dictionary, then use the maximum shape
                 if i < 2:  # for out/in channel dimensions
-                    shape_ind[node_ind, i] = self.channels_lookup[sz[i] if sz[i] in self.channels_lookup else self.channels[-1]]
+                    shape_ind[node_ind, i] = self.channels_lookup[
+                        sz[i] if sz[i] in self.channels_lookup else self.channels[-1]]
                     if self.debug_level and not self.printed_warning:
                         recognized_sz += int(sz[i] in self.channels_lookup_training)
                 else:  # for kernel height/width
-                    shape_ind[node_ind, i] = self.spatial_lookup[sz[i] if sz[i] in self.spatial_lookup else self.spatial[-1]]
+                    shape_ind[node_ind, i] = self.spatial_lookup[
+                        sz[i] if sz[i] in self.spatial_lookup else self.spatial[-1]]
                     if self.debug_level and not self.printed_warning:
                         recognized_sz += int(sz[i] in self.spatial_lookup_training)
 
             if self.debug_level and not self.printed_warning:  # print a warning once per architecture
                 if recognized_sz != 4:
-                    print( 'WARNING: unrecognized shape %s, so the closest shape at index %s will be used instead.' % (
+                    print('WARNING: unrecognized shape %s, so the closest shape at index %s will be used instead.' % (
                         sz_org, ([self.channels[c.item()] if i < 2 else self.spatial[c.item()] for i, c in
                                   enumerate(shape_ind[node_ind])])))
                     self.printed_warning = True
