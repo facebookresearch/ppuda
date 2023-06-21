@@ -40,7 +40,8 @@ class DeepNets1M(torch.utils.data.Dataset):
                  fc_dim=(64, 512),
                  num_nets=None,
                  arch=None,
-                 large_images=False):
+                 large_images=False,
+                 verbose=False):
         super(DeepNets1M, self).__init__()
 
         self.split = split
@@ -58,9 +59,11 @@ class DeepNets1M(torch.utils.data.Dataset):
             self.fc_dim = torch.arange(fc_dim[0], fc_dim[1] + 1, 64)
 
         self.large_images = large_images  # this affects some network parameters
+        self.verbose = verbose
 
         # Load one of the splits
-        print('\nloading %s nets...' % self.split.upper())
+        if self.verbose:
+            print('\nloading %s nets...' % self.split.upper())
 
         if self.split == 'predefined':
             self.nets = self._get_predefined()
@@ -86,17 +89,19 @@ class DeepNets1M(torch.utils.data.Dataset):
 
         if arch is not None:
             arch = int(arch)
-            assert arch >= 0 and arch < len(self.nets), \
-                'architecture with index={} is not available in the {} split with {} architectures in total'.format(arch, split, len(self.nets))
+            assert 0 <= arch < len(self.nets), \
+                'architecture with index={} is not available in the {} split with {} architectures in total'.format(
+                    arch, split, len(self.nets))
             self.nets = [self.nets[arch]]
             self.nodes = torch.tensor([self.nodes[arch]])
 
-        print('loaded {}/{} nets with {}-{} nodes (mean\u00B1std: {:.1f}\u00B1{:.1f})'.
-              format(len(self.nets),n_all,
-                     self.nodes.min().item(),
-                     self.nodes.max().item(),
-                     self.nodes.float().mean().item(),
-                     self.nodes.float().std().item()))
+        if self.verbose:
+            print('loaded {}/{} nets with {}-{} nodes (mean\u00B1std: {:.1f}\u00B1{:.1f})'.
+                  format(len(self.nets),n_all,
+                         self.nodes.min().item(),
+                         self.nodes.max().item(),
+                         self.nodes.float().mean().item(),
+                         self.nodes.float().std().item()))
 
 
     @staticmethod

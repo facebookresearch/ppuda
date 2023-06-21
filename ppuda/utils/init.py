@@ -31,10 +31,11 @@ def init(model, orth=True, beta=0, layer=0, max_sz=0, verbose=False):
     if not (orth or beta > 0 or layer > 0 or max_sz > 0):
         return model
 
-    print(
-        '\npostprocessing parameters: orth={} \t beta={} \t layer={} \t max_sz={}'.format(
-            orth, beta, layer, max_sz
-        ))
+    if verbose:
+        print(
+            '\npostprocessing parameters: orth={} \t beta={} \t layer={} \t max_sz={}'.format(
+                orth, beta, layer, max_sz
+            ))
 
     layer_2d = 0  # layer counter
 
@@ -86,7 +87,8 @@ def init(model, orth=True, beta=0, layer=0, max_sz=0, verbose=False):
         assert weight.shape == module.weight.shape, (weight.shape, module.weight.shape)
         module.weight.data = weight
 
-    print('done postprocessing!\n')
+    if verbose:
+        print('done postprocessing!\n')
 
     return model
 

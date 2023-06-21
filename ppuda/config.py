@@ -22,36 +22,43 @@ import os
 import torch
 import torchvision
 import torch.backends.cudnn as cudnn
-from .utils import set_seed, default_device
+from ppuda.utils import set_seed, default_device
 
 
-print('\nEnvironment:')
-env = {}
-try:
-    # print git commit to ease code reproducibility
-    env['git commit'] = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
-except Exception as e:
-    print(e, flush=True)
-    env['git commit'] = 'no git'
-env['hostname'] = platform.node()
-env['torch'] = torch.__version__
-env['torchvision'] = torchvision.__version__
-try:
-    assert list(map(lambda x: float(x), env['torch'].split('.')[:2])) >= [1, 9]
-except:
-    print('WARNING: PyTorch version {} is used, but version >= 1.9 is strongly recommended for this repo!'.format(env['torch']))
+def init_config(mode='eval', parser=None, verbose=True):
 
+    if verbose:
+        print('\nEnvironment:')
+    env = {}
+    try:
+        # print git commit to ease code reproducibility
+        env['git commit'] = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
+    except Exception as e:
+        if verbose:
+            print(e, flush=True)
+        env['git commit'] = 'no git'
 
-env['cuda available'] = torch.cuda.is_available()
-env['cudnn enabled'] = cudnn.enabled
-env['cuda version'] = torch.version.cuda
-env['start time'] = time.strftime('%Y%m%d-%H%M%S')
-for x, y in env.items():
-    print('{:20s}: {}'.format(x[:20], y))
+    env['hostname'] = platform.node()
+    env['torch'] = torch.__version__
+    env['torchvision'] = torchvision.__version__
+    try:
+        assert list(map(lambda x: float(x), env['torch'].split('.')[:2])) >= [1, 9]
+    except:
+        if verbose:
+            print('WARNING: PyTorch version {} is used, but version >= 1.9 is '
+                  'strongly recommended for this repo!'.format(env['torch']))
 
+    env['cuda available'] = torch.cuda.is_available()
+    env['cudnn enabled'] = cudnn.enabled
+    env['cuda version'] = torch.version.cuda
+    env['start time'] = time.strftime('%Y%m%d-%H%M%S')
+    if verbose:
+        for x, y in env.items():
+            print('{:20s}: {}'.format(x[:20], y))
 
-def init_config(mode='eval'):
-    parser = argparse.ArgumentParser(description='Parameter Prediction for Unseen Deep Architectures')
+    if parser is None:
+        # create parser or use the existing one if provided
+        parser = argparse.ArgumentParser(description='Parameter Prediction for Unseen Deep Architectures')
 
     # Data args
     parser.add_argument('-d', '--dataset', type=str, default='cifar10', help='image dataset: cifar10/imagenet/PennFudanPed.')
@@ -91,7 +98,6 @@ def init_config(mode='eval'):
         if is_train_net:
             parser.add_argument('--pretrained', action='store_true', help='use pretrained torchvision.models')
 
-
     if is_train_ghn or is_train_net:
 
         # Predefine default arguments
@@ -114,9 +120,9 @@ def init_config(mode='eval'):
 
         parser.add_argument('-b', '--batch_size', type=int, default=batch_size, help='image batch size for training')
         parser.add_argument('-e', '--epochs', type=int, default=epochs, help='number of epochs to train')
-        parser.add_argument('--opt', type=str, default='sgd' if is_train_net else 'adam',
-                            choices=['sgd', 'adam', 'adamw'], help='optimizer')
+        parser.add_argument('--opt', type=str, default='sgd' if is_train_net else 'adam', help='optimizer')
         parser.add_argument('--lr', type=float, default=lr, help='initial learning rate')
+        parser.add_argument('--scheduler', type=str, default=None, help='lr scheduler')
         parser.add_argument('--grad_clip', type=float, default=5, help='grad clip')
         parser.add_argument('-l', '--log_interval', type=int, default=10 if is_detection else 100,
                             help='number of training iterations when print intermediate results')
@@ -182,30 +188,37 @@ def init_config(mode='eval'):
             print('{:20s}: {}'.format(x[:20], y))
         print('\n', flush=True)
 
-    print_args(args, 'Script Arguments ({} mode)'.format(mode))
+    if verbose:
+        print_args(args, 'Script Arguments ({} mode)'.format(mode))
 
     if hasattr(args, 'multigpu'):
         if args.multigpu:
             n_devices = torch.cuda.device_count()
             if n_devices > 1:
                 assert args.device == 'cuda', ('multigpu can only be used together with device=cuda', args.device)
-                assert args.meta_batch_size >= n_devices, \
-                    'multigpu requires meta_batch_size ({}) to be >= number of cuda device ({})'.format(args.meta_batch_size, n_devices)
-                assert args.meta_batch_size % n_devices == 0, \
-                    'meta_batch_size ({}) must be a multiple of the number of cuda device ({})'.format(args.meta_batch_size, n_devices)
-                print('{} cuda devices are available for multigpu training\n'.format(n_devices))
+                if is_train_ghn:
+                    assert args.meta_batch_size >= n_devices, \
+                        'multigpu requires meta_batch_size ({}) to be >= number of cuda device ({})'.format(
+                            args.meta_batch_size, n_devices)
+                    assert args.meta_batch_size % n_devices == 0, \
+                        'meta_batch_size ({}) must be a multiple of the number of cuda device ({})'.format(
+                            args.meta_batch_size, n_devices)
+                if verbose:
+                    print('{} cuda devices are available for multigpu training\n'.format(n_devices))
             else:
-                print('multigpu argument is ignored: > 1 cuda devices necessary, while only {} cuda devices are available\n'.format(n_devices))
+                if verbose:
+                    print('multigpu argument is ignored: > 1 cuda devices necessary, '
+                          'while only {} cuda devices are available\n'.format(n_devices))
                 args.multigpu = False
-
 
     set_seed(args.seed)
 
     args.save = None
     if mode != 'eval' and args.save_dir not in ['None', 'none', '']:
-        args.save = os.path.join(args.save_dir, '{}-{}-{}'.format(args.name, env['git commit'], args.seed))  # time.strftime("%Y%m%d-%H%M%S")
-        print('Experiment dir: {}\n'.format(args.save))
+        args.save = os.path.join(args.save_dir, '{}-{}-{}'.format(args.name, env['git commit'], args.seed))
+        if verbose:
+            print('Experiment dir: {}\n'.format(args.save))
         if not os.path.exists(args.save):
-            os.mkdir(args.save)
+            os.makedirs(args.save)  # create dirs recursively if necessary
 
     return args
